@@ -1,4 +1,4 @@
 all    :; dapp build
 clean  :; dapp clean
 test   :; dapp test
-deploy :; dapp create GebSafeSaviours
+deploy :; dapp create ETHBackupReserveSafeSaviour
