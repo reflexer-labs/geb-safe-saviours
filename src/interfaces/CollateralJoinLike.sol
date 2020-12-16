@@ -1,6 +1,6 @@
 pragma solidity 0.6.7;
 
-contract CollateralJoinLike {
+abstract contract CollateralJoinLike {
     function safeEngine() virtual public view returns (address);
     function collateralType() virtual public view returns (bytes32);
     function collateral() virtual public view returns (address);
