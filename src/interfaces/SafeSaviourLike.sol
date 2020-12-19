@@ -39,7 +39,7 @@ abstract contract SafeSaviourLike {
     uint256 public constant CRATIO_SCALE_DOWN = 10^16;
     uint256 public constant WAD               = 10^18;
     uint256 public constant RAY               = 10^27;
-    uint256 public constant MAX_CRATIO        = 1500;
+    uint256 public constant MAX_CRATIO        = 1000;
     uint256 public constant MAX_UINT          = uint(-1);
 
     // --- Boolean Logic ---

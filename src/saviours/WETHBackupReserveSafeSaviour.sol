@@ -5,8 +5,11 @@ import "../math/SafeMath.sol";
 
 contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     // --- Variables ---
+    // Amount of WETH deposited to cover each SAFE
     mapping(address => uint256) public wethCover;
+    // The WETH join contract for adding collateral in the system
     CollateralJoinLike          public collateralJoin;
+    // The WETH token
     ERC20Like                   public weth;
 
     // --- Events ---
@@ -57,32 +60,56 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     }
 
     // --- Adding/Withdrawing Cover ---
+    /*
+    * @notice Deposit WETH in the contract in order to provide cover for a specific SAFE controlled by the SAFE Manager
+    * @param safeID The ID of the SAFE to protect. This ID should be registered inside GebSafeManager
+    * @param wethAmount The amount of WETH to deposit
+    */
     function deposit(uint256 safeID, uint256 wethAmount) external liquidationEngineApproved(address(this)) {
         require(wethAmount > 0, "WETHBackupReserveSafeSaviour/null-weth-amount");
 
+        // Check that the SAFE exists inside GebSafeManager
         address safeHandler = safeManager.safes(safeID);
         require(safeHandler != address(0), "WETHBackupReserveSafeSaviour/null-handler");
 
+        // Check that the SAFE has debt
         (, uint256 safeDebt) =
           SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
         require(safeDebt > 0, "WETHBackupReserveSafeSaviour/safe-does-not-have-debt");
 
+        // Update the WETH balance used to cover the SAFE and transfer WETH to this contract
         wethCover[safeHandler] = add(wethCover[safeHandler], wethAmount);
         require(weth.transferFrom(msg.sender, address(this), wethAmount), "WETHBackupReserveSafeSaviour/could-not-transfer-weth");
 
         emit Deposit(msg.sender, safeHandler, wethAmount);
     }
+    /*
+    * @notice Withdraw WETH from the contract and provide less cover for a SAFE
+    * @dev Only an address that controls the SAFE inside GebSafeManager can call this
+    * @param safeID The ID of the SAFE to remove cover from. This ID should be registered inside GebSafeManager
+    * @param wethAmount The amount of WETH to withdraw
+    */
     function withdraw(uint256 safeID, uint256 wethAmount) external controlsHandler(msg.sender, safeID) {
         require(wethAmount > 0, "WETHBackupReserveSafeSaviour/null-weth-amount");
+        require(wethCover[safeHandler] >= wethAmount, "WETHBackupReserveSafeSaviour/not-enough-to-withdraw");
 
+        // Fetch the handler from the SAFE manager
         address safeHandler = safeManager.safes(safeID);
 
+        // Withdraw cover and transfer WETH to the caller
         wethCover[safeHandler] = sub(wethCover[safeHandler], wethAmount);
         weth.transfer(msg.sender, wethAmount);
+
         emit Withdraw(msg.sender, safeID, safeHandler, wethAmount);
     }
 
     // --- Adjust Cover Preferences ---
+    /*
+    * @notice Sets the collateralization ratio that a SAFE should have after it's saved
+    * @dev Only an address that controls the SAFE inside GebSafeManager can call this
+    * @param safeID The ID of the SAFE to set the desired CRatio for. This ID should be registered inside GebSafeManager
+    * @param cRatio The collateralization ratio to set
+    */
     function setDesiredCollateralizationRatio(uint256 safeID, uint256 cRatio) external controlsHandler(msg.sender, safeID) {
         uint256 scaledLiquidationRatio = oracleRelayer.liquidationCRatio(collateralJoin.collateralType()) / CRATIO_SCALE_DOWN;
         address safeHandler = safeManager.safes(safeID);
@@ -97,6 +124,14 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     }
 
     // --- Saving Logic ---
+    /*
+    * @notice Saves a SAFE by adding more WETH into it
+    * @dev Only the LiquidationEngine can call this
+    * @param keeper The keeper that called LiquidationEngine.liquidateSAFE and that should be rewarded for spending gas to save a SAFE
+    * @param collateralType The collateral type backing the SAFE that's being liquidated
+    * @param safeHandler The handler of the SAFE that's being saved
+    * @return Whether the SAFE has been saved, the amount of WETH added in the SAFE as well as the amount of WETH sent to the keeper as their payment
+    */
     function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external returns (bool, uint256, uint256) {
         require(address(liquidationEngine) == msg.sender, "WETHBackupReserveSafeSaviour/caller-not-liquidation-engine");
         require(keeper != address(0), "WETHBackupReserveSafeSaviour/null-keeper-address");
@@ -105,12 +140,16 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
         // Check that the fiat value of the keeper payout is high enough
         require(keeperPayoutExceedsMinValue(), "WETHBackupReserveSafeSaviour/small-keeper-payout-value");
 
+        // Check that the amount of collateral locked in the safe is bigger than the keeper's payout
         (uint256 safeLockedCollateral,) =
           SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
         require(safeLockedCollateral >= mul(keeperPayout, payoutToSAFESize), "WETHBackupReserveSafeSaviour/tiny-safe");
 
+        // Compute and check the validity of the amount of WETH used to save the SAFE
         uint256 tokenAmountUsed = tokenAmountUsedToSave(safeHandler);
         require(both(tokenAmountUsed != MAX_UINT, tokenAmountUsed != 0), "WETHBackupReserveSafeSaviour/invalid-tokens-used-to-save");
+
+        // Check that there's enough WETH added as to cover both the keeper's payout and the amount used to save the SAFE
         require(wethCover[safeHandler] >= add(keeperPayout, tokenAmountUsed), "WETHBackupReserveSafeSaviour/not-enough-cover-deposited");
 
         // Update the remaining cover
@@ -138,6 +177,11 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     }
 
     // --- Getters ---
+    /*
+    * @notice Compute whether the value of keeperPayout WETH is higher than or equal to minKeeperPayoutValue
+    * @dev Used to determine whether it's worth it for the keeper to save the SAFE in exchange for keeperPayout WETH
+    * @return A bool representing whether the value of keeperPayout WETH is >= minKeeperPayoutValue
+    */
     function keeperPayoutExceedsMinValue() override public returns (bool) {
         (address ethFSM,,) = oracleRelayer.collateralTypes(collateralJoin.collateralType());
         (uint256 priceFeedValue, bool hasValidValue) = PriceFeedLike(PriceFeedLike(ethFSM).priceSource()).getResultWithValidity();
@@ -148,6 +192,11 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
 
         return (minKeeperPayoutValue <= mul(keeperPayout, priceFeedValue) / WAD);
     }
+    /*
+    * @notice Determine whether a SAFE can be saved with the current amount of WETH deposited as cover for it
+    * @param safeHandler The handler of the SAFE which the function takes into account
+    * @return Whether the SAFE can be saved or not
+    */
     function canSave(address safeHandler) override external returns (bool) {
         uint256 tokenAmountUsed = tokenAmountUsedToSave(safeHandler);
 
@@ -157,25 +206,36 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
 
         return (wethCover[safeHandler] >= add(tokenAmountUsed, keeperPayout));
     }
+    /*
+    * @notice Calculate the amount of WETH used to save a SAFE and bring its CRatio to the desired level
+    * @param safeHandler The handler of the SAFE which the function takes into account
+    * @return The amount of WETH used to save the SAFE and bring its CRatio to the desired level
+    */
     function tokenAmountUsedToSave(address safeHandler) override public returns (uint256 tokenAmountUsed) {
         (uint256 depositedWETH, uint256 safeDebt) =
           SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
         (address ethFSM,,) = oracleRelayer.collateralTypes(collateralJoin.collateralType());
         (uint256 priceFeedValue, bool hasValidValue) = PriceFeedLike(ethFSM).getResultWithValidity();
 
+        // If the SAFE doesn't have debt or if the price feed is faulty, abort
         if (either(safeDebt == 0, either(priceFeedValue == 0, !hasValidValue))) {
             tokenAmountUsed = MAX_UINT;
             return tokenAmountUsed;
         }
 
+        // Calculate the value of the debt equivalent to the value of the WETH that would need to be in the SAFE after it's saved
         uint256 targetCRatio = (desiredCollateralizationRatios[collateralJoin.collateralType()][safeHandler] == 0) ?
           defaultDesiredCollateralizationRatio : desiredCollateralizationRatios[collateralJoin.collateralType()][safeHandler];
         uint256 scaledDownDebtValue = mul(add(mul(oracleRelayer.redemptionPrice(), safeDebt) / RAY, ONE), targetCRatio) / HUNDRED;
+
+        // Compute the amount of WETH the SAFE needs to get to the desired CRatio
         uint256 wethAmountNeeded = mul(scaledDownDebtValue, WAD) / priceFeedValue;
 
+        // If the amount of WETH needed is lower than the amount that's currently in the SAFE, return 0
         if (wethAmountNeeded <= depositedWETH) {
           return 0;
         } else {
+          // Otherwise return the delta
           return sub(wethAmountNeeded, depositedWETH);
         }
     }
