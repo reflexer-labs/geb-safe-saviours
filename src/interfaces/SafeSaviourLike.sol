@@ -1,10 +1,12 @@
 pragma solidity 0.6.7;
 
-import "./ETHJoinLike.sol";
+import "./CollateralJoinLike.sol";
 import "./OracleRelayerLike.sol";
 import "./SAFEEngineLike.sol";
 import "./LiquidationEngineLike.sol";
 import "./PriceFeedLike.sol";
+import "./ERC20Like.sol";
+import "./GebSafeManagerLike.sol";
 
 abstract contract SafeSaviourLike {
     modifier liquidationEngineApproved(address saviour) {
@@ -21,13 +23,14 @@ abstract contract SafeSaviourLike {
     LiquidationEngineLike public liquidationEngine;
     OracleRelayerLike     public oracleRelayer;
     GebSafeManagerLike    public safeManager;
+    SAFEEngineLike        public safeEngine;
 
     uint256 public keeperPayout;
     uint256 public minKeeperPayoutValue;
     uint256 public payoutToSAFESize;
     uint256 public defaultDesiredCollateralizationRatio;
 
-    mapping(bytes32 => uint256) public desiredCollateralizationRatios;
+    mapping(bytes32 => mapping(address => uint256)) public desiredCollateralizationRatios;
 
     // --- Constants ---
     uint256 public constant ONE               = 1;

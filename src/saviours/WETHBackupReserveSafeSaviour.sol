@@ -1,8 +1,6 @@
 pragma solidity 0.6.7;
 
 import "../interfaces/SafeSaviourLike.sol";
-import "../interfaces/ERC20Like.sol";
-
 import "../math/SafeMath.sol";
 
 contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
@@ -70,7 +68,7 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
         require(safeDebt > 0, "WETHBackupReserveSafeSaviour/safe-does-not-have-debt");
 
         wethCover[safeHandler] = add(wethCover[safeHandler], wethAmount);
-        weth.transferFrom(msg.sender, address(this), wethAmount);
+        require(weth.transferFrom(msg.sender, address(this), wethAmount), "WETHBackupReserveSafeSaviour/could-not-transfer-weth");
 
         emit Deposit(msg.sender, safeHandler, wethAmount);
     }
@@ -86,10 +84,10 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
 
     // --- Adjust Cover Preferences ---
     function setDesiredCollateralizationRatio(uint256 safeID, uint256 cRatio) external controlsHandler(msg.sender, safeID) {
-        uint256 scaledLiquidationRatio = oracleRelayer.liquidationCRatio() / CRATIO_SCALE_DOWN;
+        uint256 scaledLiquidationRatio = oracleRelayer.liquidationCRatio(collateralJoin.collateralType()) / CRATIO_SCALE_DOWN;
         address safeHandler = safeManager.safes(safeID);
 
-        require(scaledLiquidationRatio > 0, "WETHBackupReserveSafeSaviour/invalid-scaled-liq-ratio")
+        require(scaledLiquidationRatio > 0, "WETHBackupReserveSafeSaviour/invalid-scaled-liq-ratio");
         require(scaledLiquidationRatio < cRatio, "WETHBackupReserveSafeSaviour/invalid-desired-cratio");
         require(cRatio <= MAX_CRATIO, "WETHBackupReserveSafeSaviour/exceeds-max-cratio");
 
@@ -102,6 +100,7 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external returns (bool, uint256, uint256) {
         require(address(liquidationEngine) == msg.sender, "WETHBackupReserveSafeSaviour/caller-not-liquidation-engine");
         require(keeper != address(0), "WETHBackupReserveSafeSaviour/null-keeper-address");
+        require(collateralType == collateralJoin.collateralType(), "WETHBackupReserveSafeSaviour/invalid-collateral-type");
 
         // Check that the fiat value of the keeper payout is high enough
         require(keeperPayoutExceedsMinValue(), "WETHBackupReserveSafeSaviour/small-keeper-payout-value");
@@ -169,13 +168,13 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
             return tokenAmountUsed;
         }
 
-        uint256 targetCRatio = (desiredCollateralizationRatios[collateralJoin.collateralType()] == 0) ?
-          defaultDesiredCollateralizationRatio : desiredCollateralizationRatios[collateralJoin.collateralType()];
+        uint256 targetCRatio = (desiredCollateralizationRatios[collateralJoin.collateralType()][safeHandler] == 0) ?
+          defaultDesiredCollateralizationRatio : desiredCollateralizationRatios[collateralJoin.collateralType()][safeHandler];
         uint256 scaledDownDebtValue = mul(add(mul(oracleRelayer.redemptionPrice(), safeDebt) / RAY, ONE), targetCRatio) / HUNDRED;
         uint256 wethAmountNeeded = mul(scaledDownDebtValue, WAD) / priceFeedValue;
 
         if (wethAmountNeeded <= depositedWETH) {
-          return 0
+          return 0;
         } else {
           return sub(wethAmountNeeded, depositedWETH);
         }
