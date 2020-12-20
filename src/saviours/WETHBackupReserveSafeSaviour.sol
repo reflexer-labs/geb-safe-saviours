@@ -16,6 +16,7 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     event Deposit(address indexed caller, address indexed safeHandler, uint256 amount);
     event Withdraw(address indexed caller, uint256 indexed safeID, address indexed safeHandler, uint256 amount);
     event SetDesiredCollateralizationRatio(address indexed caller, uint256 indexed safeID, address indexed safeHandler, uint256 cRatio);
+    event SaveSAFE(address keeper, bytes32 indexed collateralType, address indexed safeHandler, uint256 collateralAdded);
 
     constructor(
       address collateralJoin_,
@@ -23,6 +24,7 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
       address oracleRelayer_,
       address safeEngine_,
       address safeManager_,
+      address saviourRegistry_,
       uint256 keeperPayout_,
       uint256 minKeeperPayoutValue_,
       uint256 payoutToSAFESize_,
@@ -33,6 +35,7 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
         require(oracleRelayer_ != address(0), "WETHBackupReserveSafeSaviour/null-oracle-relayer");
         require(safeEngine_ != address(0), "WETHBackupReserveSafeSaviour/null-safe-engine");
         require(safeManager_ != address(0), "WETHBackupReserveSafeSaviour/null-safe-manager");
+        require(saviourRegistry_ != address(0), "WETHBackupReserveSafeSaviour/null-saviour-registry");
         require(keeperPayout_ > 0, "WETHBackupReserveSafeSaviour/invalid-keeper-payout");
         require(defaultDesiredCollateralizationRatio_ > 0, "WETHBackupReserveSafeSaviour/null-default-cratio");
         require(payoutToSAFESize_ > 1, "WETHBackupReserveSafeSaviour/invalid-payout-to-safe-size");
@@ -47,6 +50,7 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
         oracleRelayer        = OracleRelayerLike(oracleRelayer_);
         safeEngine           = SAFEEngineLike(safeEngine_);
         safeManager          = GebSafeManagerLike(safeManager_);
+        saviourRegistry      = SAFESaviourRegistryLike(saviourRegistry_);
         weth                 = ERC20Like(collateralJoin.collateral());
 
         uint256 scaledLiquidationRatio = oracleRelayer.liquidationCRatio(collateralJoin.collateralType()) / CRATIO_SCALE_DOWN;
@@ -91,10 +95,10 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     */
     function withdraw(uint256 safeID, uint256 wethAmount) external controlsHandler(msg.sender, safeID) {
         require(wethAmount > 0, "WETHBackupReserveSafeSaviour/null-weth-amount");
-        require(wethCover[safeHandler] >= wethAmount, "WETHBackupReserveSafeSaviour/not-enough-to-withdraw");
 
         // Fetch the handler from the SAFE manager
         address safeHandler = safeManager.safes(safeID);
+        require(wethCover[safeHandler] >= wethAmount, "WETHBackupReserveSafeSaviour/not-enough-to-withdraw");
 
         // Withdraw cover and transfer WETH to the caller
         wethCover[safeHandler] = sub(wethCover[safeHandler], wethAmount);
@@ -155,6 +159,9 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
         // Update the remaining cover
         wethCover[safeHandler] = sub(wethCover[safeHandler], add(keeperPayout, tokenAmountUsed));
 
+        // Mark the SAFE as just being saved
+        saviourRegistry.markSave(collateralType, safeHandler);
+
         // Approve WETH to the collateral join contract
         weth.approve(address(collateralJoin), 0);
         weth.approve(address(collateralJoin), tokenAmountUsed);
@@ -172,6 +179,9 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
 
         // Send the fee to the keeper
         weth.transfer(keeper, keeperPayout);
+
+        // Emit an event
+        emit SaveSAFE(keeper, collateralType, safeHandler, tokenAmountUsed);
 
         return (true, tokenAmountUsed, keeperPayout);
     }
