@@ -226,7 +226,7 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         liquidationEngine.modifyParameters("gold", "liquidationQuantity", rad(111 ether));
         liquidationEngine.modifyParameters("gold", "liquidationPenalty", 1.1 ether);
 
-        uint auction = liquidationEngine.liquidateSAFE("gold", address(this));
+        uint auction = liquidationEngine.liquidateSAFE("gold", safeHandler);
         // the full SAFE is liquidated
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("gold", address(this));
         assertEq(lockedCollateral, 0);
@@ -238,5 +238,5 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         assertEq(amountToSell, 40 ether);
         assertEq(amountToRaise, rad(110 ether));
     }
-    
+
 }
