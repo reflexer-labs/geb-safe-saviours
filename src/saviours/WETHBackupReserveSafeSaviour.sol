@@ -159,7 +159,7 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
         // Update the remaining cover
         wethCover[safeHandler] = sub(wethCover[safeHandler], add(keeperPayout, tokenAmountUsed));
 
-        // Mark the SAFE as just being saved
+        // Mark the SAFE in the registry as just being saved
         saviourRegistry.markSave(collateralType, safeHandler);
 
         // Approve WETH to the collateral join contract
