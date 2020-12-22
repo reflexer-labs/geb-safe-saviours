@@ -2,7 +2,7 @@ pragma solidity 0.6.7;
 pragma experimental ABIEncoderV2;
 
 import "ds-test/test.sol";
-import "ds-token/delegate.sol";
+import "ds-token/token.sol";
 
 import {SAFEEngine} from 'geb/SAFEEngine.sol';
 import {LiquidationEngine} from 'geb/LiquidationEngine.sol';
@@ -11,8 +11,10 @@ import {TaxCollector} from 'geb/TaxCollector.sol';
 import 'geb/BasicTokenAdapters.sol';
 import {OracleRelayer} from 'geb/OracleRelayer.sol';
 import {EnglishCollateralAuctionHouse} from 'geb/CollateralAuctionHouse.sol';
+import {GebSafeManager} from "geb-safe-manager/GebSafeManager.sol";
 
-import "geb-safe-manager/GebSafeManager.sol";
+import {SAFESaviourRegistry} from "../SAFESaviourRegistry.sol";
+import {WETHBackupReserveSafeSaviour} from "../saviours/WETHBackupReserveSafeSaviour.sol";
 
 abstract contract Hevm {
   function warp(uint256) virtual public;
@@ -21,10 +23,15 @@ contract Feed {
     bytes32 public price;
     bool public validPrice;
     uint public lastUpdateTime;
+    address public priceSource;
+
     constructor(uint256 price_, bool validPrice_) public {
         price = bytes32(price_);
         validPrice = validPrice_;
         lastUpdateTime = now;
+    }
+    function updatePriceSource(address priceSource_) external {
+        priceSource = priceSource_;
     }
     function updateCollateralPrice(uint256 price_) external {
         price = bytes32(price_);
@@ -62,6 +69,14 @@ contract TestAccountingEngine is AccountingEngine {
     }
 }
 contract FakeUser {
+    function doOpenSafe(
+        GebSafeManager manager,
+        bytes32 collateralType,
+        address usr
+    ) public returns (uint256) {
+        return manager.openSAFE(collateralType, usr);
+    }
+
     function doSafeAllow(
         GebSafeManager manager,
         uint safe,
@@ -103,7 +118,7 @@ contract FakeUser {
         safeEngine.approveSAFEModification(usr);
     }
 
-    function doSAFEEngineMOdifySAFECollateralization(
+    function doSAFEEngineModifySAFECollateralization(
         SAFEEngine safeEngine,
         bytes32 collateralType,
         address safe,
@@ -131,7 +146,7 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
     TestSAFEEngine safeEngine;
     TestAccountingEngine accountingEngine;
     LiquidationEngine liquidationEngine;
-    DSDelegateToken gold;
+    OracleRelayer oracleRelayer;
     TaxCollector taxCollector;
 
     BasicCollateralJoin collateralA;
@@ -139,7 +154,23 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
 
     GebSafeManager safeManager;
 
+    Feed goldFSM;
+    Feed goldMedian;
+
+    DSToken gold;
+
+    WETHBackupReserveSafeSaviour saviour;
+    SAFESaviourRegistry saviourRegistry;
+
+    FakeUser alice;
     address me;
+
+    // Saviour parameters
+    uint256 saveCooldown = 1 days;
+    uint256 keeperPayout = 0.5 ether;
+    uint256 minKeeperPayoutValue = 0.01 ether;
+    uint256 payoutToSAFESize = 40;
+    uint256 defaultDesiredCollateralizationRatio = 200;
 
     function ray(uint wad) internal pure returns (uint) {
         return wad * 10 ** 9;
@@ -148,24 +179,22 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         return wad * 10 ** 27;
     }
 
-    function tokenCollateral(bytes32 collateralType, address safe) internal view returns (uint) {
-        return safeEngine.tokenCollateral(collateralType, safe);
-    }
-    function lockedCollateral(bytes32 collateralType, address safe) internal view returns (uint) {
-        (uint lockedCollateral_, uint generatedDebt_) = safeEngine.safes(collateralType, safe); generatedDebt_;
-        return lockedCollateral_;
-    }
-    function generatedDebt(bytes32 collateralType, address safe) internal view returns (uint) {
-        (uint lockedCollateral_, uint generatedDebt_) = safeEngine.safes(collateralType, safe); lockedCollateral_;
-        return generatedDebt_;
-    }
-
     function setUp() public {
         hevm = Hevm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
         hevm.warp(604411200);
 
         safeEngine = new TestSAFEEngine();
         safeEngine = safeEngine;
+
+        goldFSM    = new Feed(3.75 ether, true);
+        goldMedian = new Feed(3.75 ether, true);
+        goldFSM.updatePriceSource(address(goldMedian));
+
+        oracleRelayer = new OracleRelayer(address(safeEngine));
+        oracleRelayer.modifyParameters("gold", "orcl", address(goldFSM));
+        oracleRelayer.modifyParameters("gold", "safetyCRatio", ray(1.5 ether));
+        oracleRelayer.modifyParameters("gold", "liquidationCRatio", ray(1.5 ether));
+        safeEngine.addAuthorization(address(oracleRelayer));
 
         accountingEngine = new TestAccountingEngine(
           address(safeEngine), address(0x1), address(0x2)
@@ -183,7 +212,7 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         safeEngine.addAuthorization(address(liquidationEngine));
         accountingEngine.addAuthorization(address(liquidationEngine));
 
-        gold = new DSDelegateToken("GEM", '');
+        gold = new DSToken("GEM", '');
         gold.mint(1000 ether);
 
         safeEngine.initializeCollateralType("gold");
@@ -205,23 +234,40 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         safeEngine.approveSAFEModification(address(collateralAuctionHouse));
 
         safeManager = new GebSafeManager(address(safeEngine));
+        oracleRelayer.updateCollateralPrice("gold");
 
-        me = address(this);
+        saviourRegistry = new SAFESaviourRegistry(saveCooldown);
+        saviour = new WETHBackupReserveSafeSaviour(
+            address(collateralA),
+            address(liquidationEngine),
+            address(oracleRelayer),
+            address(safeEngine),
+            address(safeManager),
+            address(saviourRegistry),
+            keeperPayout,
+            minKeeperPayoutValue,
+            payoutToSAFESize,
+            defaultDesiredCollateralizationRatio
+        );
+        saviourRegistry.toggleSaviour(address(saviour));
+        liquidationEngine.connectSAFESaviour(address(saviour));
+
+        me    = address(this);
+        alice = new FakeUser();
     }
 
     function test_liquidate_no_saviour_set() public {
-        safeEngine.modifyParameters("gold", 'safetyPrice', ray(2.5 ether));
-        safeEngine.modifyParameters("gold", 'liquidationPrice', ray(2.5 ether));
-
-        uint safe = safeManager.openSAFE("gold", address(this));
+        uint safe = alice.doOpenSafe(safeManager, "gold", address(this));
         address safeHandler = safeManager.safes(safe);
 
         gold.approve(address(collateralA));
         collateralA.join(address(safeHandler), 1000 ether);
-        safeManager.modifySAFECollateralization(safe, 40 ether, 100 ether);
+        safeManager.allowSAFE(safe, address(alice), 1);
+        alice.doModifySAFECollateralization(safeManager, safe, 40 ether, 100 ether);
 
-        safeEngine.modifyParameters("gold", 'safetyPrice', ray(2 ether));
-        safeEngine.modifyParameters("gold", 'liquidationPrice', ray(2 ether));
+        goldMedian.updateCollateralPrice(3 ether);
+        goldFSM.updateCollateralPrice(3 ether);
+        oracleRelayer.updateCollateralPrice("gold");
 
         liquidationEngine.modifyParameters("gold", "liquidationQuantity", rad(111 ether));
         liquidationEngine.modifyParameters("gold", "liquidationPenalty", 1.1 ether);
@@ -238,5 +284,4 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         assertEq(amountToSell, 40 ether);
         assertEq(amountToRaise, rad(110 ether));
     }
-
 }

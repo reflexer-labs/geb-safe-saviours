@@ -139,6 +139,11 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external returns (bool, uint256, uint256) {
         require(address(liquidationEngine) == msg.sender, "WETHBackupReserveSafeSaviour/caller-not-liquidation-engine");
         require(keeper != address(0), "WETHBackupReserveSafeSaviour/null-keeper-address");
+
+        if (both(both(collateralType == "", safeHandler == address(0)), keeper == address(liquidationEngine))) {
+            return (true, uint(-1), uint(-1));
+        }
+
         require(collateralType == collateralJoin.collateralType(), "WETHBackupReserveSafeSaviour/invalid-collateral-type");
 
         // Check that the fiat value of the keeper payout is high enough
