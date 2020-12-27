@@ -16,7 +16,7 @@ abstract contract SafeSaviourLike {
         _;
     }
     // Checks whether someone controls a safe handler inside the GebSafeManager
-    modifier controlsHandler(address owner, uint256 safeID) {
+    modifier controlsSAFE(address owner, uint256 safeID) {
         require(owner != address(0), "SafeSaviour/null-owner");
         require(either(owner == safeManager.ownsSAFE(safeID), safeManager.safeCan(safeManager.ownsSAFE(safeID), safeID, owner) == 1), "SafeSaviour/not-owning-safe");
 
@@ -65,6 +65,7 @@ abstract contract SafeSaviourLike {
 
     // --- Functions to Implement ---
     function saveSAFE(address,bytes32,address) virtual external returns (bool,uint256,uint256);
+    function getKeeperPayoutValue() virtual public returns (uint256);
     function keeperPayoutExceedsMinValue() virtual public returns (bool);
     function canSave(address) virtual external returns (bool);
     function tokenAmountUsedToSave(address) virtual public returns (uint256);

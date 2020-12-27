@@ -93,7 +93,7 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     * @param safeID The ID of the SAFE to remove cover from. This ID should be registered inside GebSafeManager
     * @param wethAmount The amount of WETH to withdraw
     */
-    function withdraw(uint256 safeID, uint256 wethAmount) external controlsHandler(msg.sender, safeID) {
+    function withdraw(uint256 safeID, uint256 wethAmount) external controlsSAFE(msg.sender, safeID) {
         require(wethAmount > 0, "WETHBackupReserveSafeSaviour/null-weth-amount");
 
         // Fetch the handler from the SAFE manager
@@ -114,7 +114,7 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     * @param safeID The ID of the SAFE to set the desired CRatio for. This ID should be registered inside GebSafeManager
     * @param cRatio The collateralization ratio to set
     */
-    function setDesiredCollateralizationRatio(uint256 safeID, uint256 cRatio) external controlsHandler(msg.sender, safeID) {
+    function setDesiredCollateralizationRatio(uint256 safeID, uint256 cRatio) external controlsSAFE(msg.sender, safeID) {
         uint256 scaledLiquidationRatio = oracleRelayer.liquidationCRatio(collateralJoin.collateralType()) / CRATIO_SCALE_DOWN;
         address safeHandler = safeManager.safes(safeID);
 
@@ -206,6 +206,19 @@ contract WETHBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         return (minKeeperPayoutValue <= mul(keeperPayout, priceFeedValue) / WAD);
+    }
+    /*
+    * @notice Return the current value of the keeper payout
+    */
+    function getKeeperPayoutValue() override public returns (uint256) {
+        (address ethFSM,,) = oracleRelayer.collateralTypes(collateralJoin.collateralType());
+        (uint256 priceFeedValue, bool hasValidValue) = PriceFeedLike(PriceFeedLike(ethFSM).priceSource()).getResultWithValidity();
+
+        if (either(!hasValidValue, priceFeedValue == 0)) {
+          return 0;
+        }
+
+        return mul(keeperPayout, priceFeedValue) / WAD;
     }
     /*
     * @notice Determine whether a SAFE can be saved with the current amount of WETH deposited as cover for it
