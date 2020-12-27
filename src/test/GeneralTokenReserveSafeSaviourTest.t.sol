@@ -254,8 +254,10 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         liquidationEngine.modifyParameters("gold", "liquidationQuantity", rad(111 ether));
         liquidationEngine.modifyParameters("gold", "liquidationPenalty", 1.1 ether);
 
+        uint256 preSaveKeeperBalance = gold.balanceOf(address(this));
         uint auction = liquidationEngine.liquidateSAFE("gold", safeHandler);
         assertEq(auction, 0);
+        assertEq(gold.balanceOf(address(this)) - preSaveKeeperBalance, saviour.keeperPayout());
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("gold", safeHandler);
         assertEq(lockedCollateral * 3E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), desiredCRatio);
