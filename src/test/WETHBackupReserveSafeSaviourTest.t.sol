@@ -14,7 +14,7 @@ import {EnglishCollateralAuctionHouse} from 'geb/CollateralAuctionHouse.sol';
 import {GebSafeManager} from "geb-safe-manager/GebSafeManager.sol";
 
 import {SAFESaviourRegistry} from "../SAFESaviourRegistry.sol";
-import {GeneralTokenBackupReserveSafeSaviour} from "../saviours/GeneralTokenBackupReserveSafeSaviour.sol";
+import {GeneralTokenReserveSafeSaviour} from "../saviours/GeneralTokenReserveSafeSaviour.sol";
 
 abstract contract Hevm {
   function warp(uint256) virtual public;
@@ -140,7 +140,7 @@ contract FakeUser {
     }
 
     function doDeposit(
-        GeneralTokenBackupReserveSafeSaviour saviour,
+        GeneralTokenReserveSafeSaviour saviour,
         DSToken collateral,
         uint safe,
         uint amount
@@ -150,7 +150,7 @@ contract FakeUser {
     }
 
     function doWithdraw(
-        GeneralTokenBackupReserveSafeSaviour saviour,
+        GeneralTokenReserveSafeSaviour saviour,
         uint safe,
         uint amount
     ) public {
@@ -158,7 +158,7 @@ contract FakeUser {
     }
 
     function doSetDesiredCollateralizationRatio(
-        GeneralTokenBackupReserveSafeSaviour saviour,
+        GeneralTokenReserveSafeSaviour saviour,
         uint safe,
         uint cRatio
     ) public {
@@ -166,7 +166,7 @@ contract FakeUser {
     }
 }
 
-contract GeneralTokenBackupReserveSafeSaviourTest is DSTest {
+contract GeneralTokenReserveSafeSaviourTest is DSTest {
     Hevm hevm;
 
     TestSAFEEngine safeEngine;
@@ -185,7 +185,7 @@ contract GeneralTokenBackupReserveSafeSaviourTest is DSTest {
 
     DSToken gold;
 
-    GeneralTokenBackupReserveSafeSaviour saviour;
+    GeneralTokenReserveSafeSaviour saviour;
     SAFESaviourRegistry saviourRegistry;
 
     FakeUser alice;
@@ -344,7 +344,7 @@ contract GeneralTokenBackupReserveSafeSaviourTest is DSTest {
         oracleRelayer.updateCollateralPrice("gold");
 
         saviourRegistry = new SAFESaviourRegistry(saveCooldown);
-        saviour = new GeneralTokenBackupReserveSafeSaviour(
+        saviour = new GeneralTokenReserveSafeSaviour(
             address(collateralA),
             address(liquidationEngine),
             address(oracleRelayer),
@@ -640,7 +640,7 @@ contract GeneralTokenBackupReserveSafeSaviourTest is DSTest {
     }
     function test_liquidate_twice_in_row_different_saviours() public {
         // Create a new saviour and set it up
-        GeneralTokenBackupReserveSafeSaviour secondSaviour = new GeneralTokenBackupReserveSafeSaviour(
+        GeneralTokenReserveSafeSaviour secondSaviour = new GeneralTokenReserveSafeSaviour(
             address(collateralA),
             address(liquidationEngine),
             address(oracleRelayer),

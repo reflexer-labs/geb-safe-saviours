@@ -78,6 +78,10 @@ abstract contract SafeSaviourLike {
         assembly{ z := or(x, y)}
     }
 
+    // --- Events ---
+    event SetDesiredCollateralizationRatio(address indexed caller, uint256 indexed safeID, address indexed safeHandler, uint256 cRatio);
+    event SaveSAFE(address indexed keeper, bytes32 indexed collateralType, address indexed safeHandler, uint256 collateralAdded);
+
     // --- Functions to Implement ---
     function saveSAFE(address,bytes32,address) virtual external returns (bool,uint256,uint256);
     function getKeeperPayoutValue() virtual public returns (uint256);

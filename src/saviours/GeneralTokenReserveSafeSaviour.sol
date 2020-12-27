@@ -18,7 +18,7 @@ pragma solidity 0.6.7;
 import "../interfaces/SafeSaviourLike.sol";
 import "../math/SafeMath.sol";
 
-contract GeneralTokenBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
+contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
     // --- Variables ---
     // Amount of collateral deposited to cover each SAFE
     mapping(address => uint256) public collateralTokenCover;
@@ -30,8 +30,6 @@ contract GeneralTokenBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     // --- Events ---
     event Deposit(address indexed caller, address indexed safeHandler, uint256 amount);
     event Withdraw(address indexed caller, uint256 indexed safeID, address indexed safeHandler, uint256 amount);
-    event SetDesiredCollateralizationRatio(address indexed caller, uint256 indexed safeID, address indexed safeHandler, uint256 cRatio);
-    event SaveSAFE(address keeper, bytes32 indexed collateralType, address indexed safeHandler, uint256 collateralAdded);
 
     constructor(
       address collateralJoin_,
@@ -45,16 +43,16 @@ contract GeneralTokenBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
       uint256 payoutToSAFESize_,
       uint256 defaultDesiredCollateralizationRatio_
     ) public {
-        require(collateralJoin_ != address(0), "GeneralTokenBackupReserveSafeSaviour/null-collateral-join");
-        require(liquidationEngine_ != address(0), "GeneralTokenBackupReserveSafeSaviour/null-liquidation-engine");
-        require(oracleRelayer_ != address(0), "GeneralTokenBackupReserveSafeSaviour/null-oracle-relayer");
-        require(safeEngine_ != address(0), "GeneralTokenBackupReserveSafeSaviour/null-safe-engine");
-        require(safeManager_ != address(0), "GeneralTokenBackupReserveSafeSaviour/null-safe-manager");
-        require(saviourRegistry_ != address(0), "GeneralTokenBackupReserveSafeSaviour/null-saviour-registry");
-        require(keeperPayout_ > 0, "GeneralTokenBackupReserveSafeSaviour/invalid-keeper-payout");
-        require(defaultDesiredCollateralizationRatio_ > 0, "GeneralTokenBackupReserveSafeSaviour/null-default-cratio");
-        require(payoutToSAFESize_ > 1, "GeneralTokenBackupReserveSafeSaviour/invalid-payout-to-safe-size");
-        require(minKeeperPayoutValue_ > 0, "GeneralTokenBackupReserveSafeSaviour/invalid-min-payout-value");
+        require(collateralJoin_ != address(0), "GeneralTokenReserveSafeSaviour/null-collateral-join");
+        require(liquidationEngine_ != address(0), "GeneralTokenReserveSafeSaviour/null-liquidation-engine");
+        require(oracleRelayer_ != address(0), "GeneralTokenReserveSafeSaviour/null-oracle-relayer");
+        require(safeEngine_ != address(0), "GeneralTokenReserveSafeSaviour/null-safe-engine");
+        require(safeManager_ != address(0), "GeneralTokenReserveSafeSaviour/null-safe-manager");
+        require(saviourRegistry_ != address(0), "GeneralTokenReserveSafeSaviour/null-saviour-registry");
+        require(keeperPayout_ > 0, "GeneralTokenReserveSafeSaviour/invalid-keeper-payout");
+        require(defaultDesiredCollateralizationRatio_ > 0, "GeneralTokenReserveSafeSaviour/null-default-cratio");
+        require(payoutToSAFESize_ > 1, "GeneralTokenReserveSafeSaviour/invalid-payout-to-safe-size");
+        require(minKeeperPayoutValue_ > 0, "GeneralTokenReserveSafeSaviour/invalid-min-payout-value");
 
         keeperPayout         = keeperPayout_;
         payoutToSAFESize     = payoutToSAFESize_;
@@ -70,10 +68,10 @@ contract GeneralTokenBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
 
         uint256 scaledLiquidationRatio = oracleRelayer.liquidationCRatio(collateralJoin.collateralType()) / CRATIO_SCALE_DOWN;
 
-        require(scaledLiquidationRatio > 0, "GeneralTokenBackupReserveSafeSaviour/invalid-scaled-liq-ratio");
-        require(both(defaultDesiredCollateralizationRatio_ > scaledLiquidationRatio, defaultDesiredCollateralizationRatio_ <= MAX_CRATIO), "GeneralTokenBackupReserveSafeSaviour/invalid-default-desired-cratio");
-        require(collateralJoin.decimals() == 18, "GeneralTokenBackupReserveSafeSaviour/invalid-join-decimals");
-        require(collateralJoin.contractEnabled() == 1, "GeneralTokenBackupReserveSafeSaviour/join-disabled");
+        require(scaledLiquidationRatio > 0, "GeneralTokenReserveSafeSaviour/invalid-scaled-liq-ratio");
+        require(both(defaultDesiredCollateralizationRatio_ > scaledLiquidationRatio, defaultDesiredCollateralizationRatio_ <= MAX_CRATIO), "GeneralTokenReserveSafeSaviour/invalid-default-desired-cratio");
+        require(collateralJoin.decimals() == 18, "GeneralTokenReserveSafeSaviour/invalid-join-decimals");
+        require(collateralJoin.contractEnabled() == 1, "GeneralTokenReserveSafeSaviour/join-disabled");
 
         defaultDesiredCollateralizationRatio = defaultDesiredCollateralizationRatio_;
     }
@@ -85,20 +83,20 @@ contract GeneralTokenBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     * @param collateralTokenAmount The amount of collateralToken to deposit
     */
     function deposit(uint256 safeID, uint256 collateralTokenAmount) external liquidationEngineApproved(address(this)) {
-        require(collateralTokenAmount > 0, "GeneralTokenBackupReserveSafeSaviour/null-collateralToken-amount");
+        require(collateralTokenAmount > 0, "GeneralTokenReserveSafeSaviour/null-collateralToken-amount");
 
         // Check that the SAFE exists inside GebSafeManager
         address safeHandler = safeManager.safes(safeID);
-        require(safeHandler != address(0), "GeneralTokenBackupReserveSafeSaviour/null-handler");
+        require(safeHandler != address(0), "GeneralTokenReserveSafeSaviour/null-handler");
 
         // Check that the SAFE has debt
         (, uint256 safeDebt) =
           SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
-        require(safeDebt > 0, "GeneralTokenBackupReserveSafeSaviour/safe-does-not-have-debt");
+        require(safeDebt > 0, "GeneralTokenReserveSafeSaviour/safe-does-not-have-debt");
 
         // Update the collateralToken balance used to cover the SAFE and transfer collateralToken to this contract
         collateralTokenCover[safeHandler] = add(collateralTokenCover[safeHandler], collateralTokenAmount);
-        require(collateralToken.transferFrom(msg.sender, address(this), collateralTokenAmount), "GeneralTokenBackupReserveSafeSaviour/could-not-transfer-collateralToken");
+        require(collateralToken.transferFrom(msg.sender, address(this), collateralTokenAmount), "GeneralTokenReserveSafeSaviour/could-not-transfer-collateralToken");
 
         emit Deposit(msg.sender, safeHandler, collateralTokenAmount);
     }
@@ -109,11 +107,11 @@ contract GeneralTokenBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     * @param collateralTokenAmount The amount of collateralToken to withdraw
     */
     function withdraw(uint256 safeID, uint256 collateralTokenAmount) external controlsSAFE(msg.sender, safeID) {
-        require(collateralTokenAmount > 0, "GeneralTokenBackupReserveSafeSaviour/null-collateralToken-amount");
+        require(collateralTokenAmount > 0, "GeneralTokenReserveSafeSaviour/null-collateralToken-amount");
 
         // Fetch the handler from the SAFE manager
         address safeHandler = safeManager.safes(safeID);
-        require(collateralTokenCover[safeHandler] >= collateralTokenAmount, "GeneralTokenBackupReserveSafeSaviour/not-enough-to-withdraw");
+        require(collateralTokenCover[safeHandler] >= collateralTokenAmount, "GeneralTokenReserveSafeSaviour/not-enough-to-withdraw");
 
         // Withdraw cover and transfer collateralToken to the caller
         collateralTokenCover[safeHandler] = sub(collateralTokenCover[safeHandler], collateralTokenAmount);
@@ -133,9 +131,9 @@ contract GeneralTokenBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
         uint256 scaledLiquidationRatio = oracleRelayer.liquidationCRatio(collateralJoin.collateralType()) / CRATIO_SCALE_DOWN;
         address safeHandler = safeManager.safes(safeID);
 
-        require(scaledLiquidationRatio > 0, "GeneralTokenBackupReserveSafeSaviour/invalid-scaled-liq-ratio");
-        require(scaledLiquidationRatio < cRatio, "GeneralTokenBackupReserveSafeSaviour/invalid-desired-cratio");
-        require(cRatio <= MAX_CRATIO, "GeneralTokenBackupReserveSafeSaviour/exceeds-max-cratio");
+        require(scaledLiquidationRatio > 0, "GeneralTokenReserveSafeSaviour/invalid-scaled-liq-ratio");
+        require(scaledLiquidationRatio < cRatio, "GeneralTokenReserveSafeSaviour/invalid-desired-cratio");
+        require(cRatio <= MAX_CRATIO, "GeneralTokenReserveSafeSaviour/exceeds-max-cratio");
 
         desiredCollateralizationRatios[collateralJoin.collateralType()][safeHandler] = cRatio;
 
@@ -153,29 +151,29 @@ contract GeneralTokenBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
     *         collateralToken sent to the keeper as their payment
     */
     function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external returns (bool, uint256, uint256) {
-        require(address(liquidationEngine) == msg.sender, "GeneralTokenBackupReserveSafeSaviour/caller-not-liquidation-engine");
-        require(keeper != address(0), "GeneralTokenBackupReserveSafeSaviour/null-keeper-address");
+        require(address(liquidationEngine) == msg.sender, "GeneralTokenReserveSafeSaviour/caller-not-liquidation-engine");
+        require(keeper != address(0), "GeneralTokenReserveSafeSaviour/null-keeper-address");
 
         if (both(both(collateralType == "", safeHandler == address(0)), keeper == address(liquidationEngine))) {
             return (true, uint(-1), uint(-1));
         }
 
-        require(collateralType == collateralJoin.collateralType(), "GeneralTokenBackupReserveSafeSaviour/invalid-collateral-type");
+        require(collateralType == collateralJoin.collateralType(), "GeneralTokenReserveSafeSaviour/invalid-collateral-type");
 
         // Check that the fiat value of the keeper payout is high enough
-        require(keeperPayoutExceedsMinValue(), "GeneralTokenBackupReserveSafeSaviour/small-keeper-payout-value");
+        require(keeperPayoutExceedsMinValue(), "GeneralTokenReserveSafeSaviour/small-keeper-payout-value");
 
         // Check that the amount of collateral locked in the safe is bigger than the keeper's payout
         (uint256 safeLockedCollateral,) =
           SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
-        require(safeLockedCollateral >= mul(keeperPayout, payoutToSAFESize), "GeneralTokenBackupReserveSafeSaviour/tiny-safe");
+        require(safeLockedCollateral >= mul(keeperPayout, payoutToSAFESize), "GeneralTokenReserveSafeSaviour/tiny-safe");
 
         // Compute and check the validity of the amount of collateralToken used to save the SAFE
         uint256 tokenAmountUsed = tokenAmountUsedToSave(safeHandler);
-        require(both(tokenAmountUsed != MAX_UINT, tokenAmountUsed != 0), "GeneralTokenBackupReserveSafeSaviour/invalid-tokens-used-to-save");
+        require(both(tokenAmountUsed != MAX_UINT, tokenAmountUsed != 0), "GeneralTokenReserveSafeSaviour/invalid-tokens-used-to-save");
 
         // Check that there's enough collateralToken added as to cover both the keeper's payout and the amount used to save the SAFE
-        require(collateralTokenCover[safeHandler] >= add(keeperPayout, tokenAmountUsed), "GeneralTokenBackupReserveSafeSaviour/not-enough-cover-deposited");
+        require(collateralTokenCover[safeHandler] >= add(keeperPayout, tokenAmountUsed), "GeneralTokenReserveSafeSaviour/not-enough-cover-deposited");
 
         // Update the remaining cover
         collateralTokenCover[safeHandler] = sub(collateralTokenCover[safeHandler], add(keeperPayout, tokenAmountUsed));
