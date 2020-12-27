@@ -14,7 +14,7 @@ import {EnglishCollateralAuctionHouse} from 'geb/CollateralAuctionHouse.sol';
 import {GebSafeManager} from "geb-safe-manager/GebSafeManager.sol";
 
 import {SAFESaviourRegistry} from "../SAFESaviourRegistry.sol";
-import {WETHBackupReserveSafeSaviour} from "../saviours/WETHBackupReserveSafeSaviour.sol";
+import {GeneralTokenBackupReserveSafeSaviour} from "../saviours/GeneralTokenBackupReserveSafeSaviour.sol";
 
 abstract contract Hevm {
   function warp(uint256) virtual public;
@@ -140,7 +140,7 @@ contract FakeUser {
     }
 
     function doDeposit(
-        WETHBackupReserveSafeSaviour saviour,
+        GeneralTokenBackupReserveSafeSaviour saviour,
         DSToken collateral,
         uint safe,
         uint amount
@@ -150,7 +150,7 @@ contract FakeUser {
     }
 
     function doWithdraw(
-        WETHBackupReserveSafeSaviour saviour,
+        GeneralTokenBackupReserveSafeSaviour saviour,
         uint safe,
         uint amount
     ) public {
@@ -158,7 +158,7 @@ contract FakeUser {
     }
 
     function doSetDesiredCollateralizationRatio(
-        WETHBackupReserveSafeSaviour saviour,
+        GeneralTokenBackupReserveSafeSaviour saviour,
         uint safe,
         uint cRatio
     ) public {
@@ -166,7 +166,7 @@ contract FakeUser {
     }
 }
 
-contract WETHBackupReserveSafeSaviourTest is DSTest {
+contract GeneralTokenBackupReserveSafeSaviourTest is DSTest {
     Hevm hevm;
 
     TestSAFEEngine safeEngine;
@@ -185,7 +185,7 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
 
     DSToken gold;
 
-    WETHBackupReserveSafeSaviour saviour;
+    GeneralTokenBackupReserveSafeSaviour saviour;
     SAFESaviourRegistry saviourRegistry;
 
     FakeUser alice;
@@ -196,7 +196,7 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
     uint256 keeperPayout = 0.5 ether;
     uint256 minKeeperPayoutValue = 0.01 ether;
     uint256 payoutToSAFESize = 40;
-    uint256 defaultDesiredCollateralizationRatio = 200;
+    uint256 defaultDesiredCollateralizationRatio = 300;
 
     function ray(uint wad) internal pure returns (uint) {
         return wad * 10 ** 9;
@@ -260,6 +260,31 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("gold", safeHandler);
         assertEq(lockedCollateral * 3E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), desiredCRatio);
     }
+    function default_save(uint256 safe, address safeHandler) internal {
+        default_modify_collateralization(safe, safeHandler);
+
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
+
+        goldMedian.updateCollateralPrice(3 ether);
+        goldFSM.updateCollateralPrice(3 ether);
+        oracleRelayer.updateCollateralPrice("gold");
+
+        gold.mint(address(alice), saviour.tokenAmountUsedToSave(safeHandler) + saviour.keeperPayout());
+        alice.doDeposit(saviour, gold, safe, saviour.tokenAmountUsedToSave(safeHandler) + saviour.keeperPayout());
+
+        assertTrue(saviour.keeperPayoutExceedsMinValue());
+        assertTrue(saviour.canSave(safeHandler));
+
+        liquidationEngine.modifyParameters("gold", "liquidationQuantity", rad(111 ether));
+        liquidationEngine.modifyParameters("gold", "liquidationPenalty", 1.1 ether);
+
+        uint auction = liquidationEngine.liquidateSAFE("gold", safeHandler);
+        assertEq(auction, 0);
+
+        (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("gold", safeHandler);
+        assertEq(lockedCollateral * 3E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), saviour.defaultDesiredCollateralizationRatio());
+    }
 
     function setUp() public {
         hevm = Hevm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
@@ -319,7 +344,7 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         oracleRelayer.updateCollateralPrice("gold");
 
         saviourRegistry = new SAFESaviourRegistry(saveCooldown);
-        saviour = new WETHBackupReserveSafeSaviour(
+        saviour = new GeneralTokenBackupReserveSafeSaviour(
             address(collateralA),
             address(liquidationEngine),
             address(oracleRelayer),
@@ -349,7 +374,7 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         alice.doDeposit(saviour, gold, safe, 200 ether);
 
         assertEq(gold.balanceOf(address(saviour)), 200 ether);
-        assertEq(saviour.wethCover(safeHandler), 200 ether);
+        assertEq(saviour.collateralTokenCover(safeHandler), 200 ether);
     }
     function test_deposit_as_random() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
@@ -360,7 +385,7 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         saviour.deposit(safe, 500 ether);
 
         assertEq(gold.balanceOf(address(saviour)), 500 ether);
-        assertEq(saviour.wethCover(safeHandler), 500 ether);
+        assertEq(saviour.collateralTokenCover(safeHandler), 500 ether);
     }
     function testFail_deposit_after_repaying_debt() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
@@ -400,11 +425,11 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
 
         alice.doWithdraw(saviour, safe, 100 ether);
         assertEq(gold.balanceOf(address(saviour)), 400 ether);
-        assertEq(saviour.wethCover(safeHandler), 400 ether);
+        assertEq(saviour.collateralTokenCover(safeHandler), 400 ether);
 
         alice.doWithdraw(saviour, safe, 400 ether);
         assertEq(gold.balanceOf(address(saviour)), 0);
-        assertEq(saviour.wethCover(safeHandler), 0);
+        assertEq(saviour.collateralTokenCover(safeHandler), 0);
     }
     function test_withdraw_when_safe_has_no_debt() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
@@ -417,7 +442,7 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         default_repay_all_debt(safe, safeHandler);
         alice.doWithdraw(saviour, safe, 500 ether);
         assertEq(gold.balanceOf(address(saviour)), 0);
-        assertEq(saviour.wethCover(safeHandler), 0);
+        assertEq(saviour.collateralTokenCover(safeHandler), 0);
     }
     function test_deposit_then_withdraw_as_approved() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
@@ -434,7 +459,7 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
 
         assertEq(gold.balanceOf(address(this)), 650 ether);
         assertEq(gold.balanceOf(address(saviour)), 250 ether);
-        assertEq(saviour.wethCover(safeHandler), 250 ether);
+        assertEq(saviour.collateralTokenCover(safeHandler), 250 ether);
     }
     function testFail_deposit_then_withdraw_as_non_approved() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
@@ -589,6 +614,11 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
         address safeHandler = safeManager.safes(safe);
         default_save(safe, safeHandler, saviour.MAX_CRATIO());
     }
+    function test_successfully_save_default_cratio() public {
+        uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler);
+    }
     function test_liquidate_twice_in_row_same_saviour() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
         address safeHandler = safeManager.safes(safe);
@@ -610,7 +640,7 @@ contract WETHBackupReserveSafeSaviourTest is DSTest {
     }
     function test_liquidate_twice_in_row_different_saviours() public {
         // Create a new saviour and set it up
-        WETHBackupReserveSafeSaviour secondSaviour = new WETHBackupReserveSafeSaviour(
+        GeneralTokenBackupReserveSafeSaviour secondSaviour = new GeneralTokenBackupReserveSafeSaviour(
             address(collateralA),
             address(liquidationEngine),
             address(oracleRelayer),
