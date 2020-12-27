@@ -66,7 +66,7 @@ contract GeneralTokenBackupReserveSafeSaviour is SafeMath, SafeSaviourLike {
         safeEngine           = SAFEEngineLike(safeEngine_);
         safeManager          = GebSafeManagerLike(safeManager_);
         saviourRegistry      = SAFESaviourRegistryLike(saviourRegistry_);
-        collateralToken                 = ERC20Like(collateralJoin.collateral());
+        collateralToken      = ERC20Like(collateralJoin.collateral());
 
         uint256 scaledLiquidationRatio = oracleRelayer.liquidationCRatio(collateralJoin.collateralType()) / CRATIO_SCALE_DOWN;
 
