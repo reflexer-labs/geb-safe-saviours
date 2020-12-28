@@ -50,8 +50,10 @@ abstract contract SafeSaviourLike {
     // The minimum fiat value that the keeper must get in exchange for saving a SAFE
     uint256 public minKeeperPayoutValue;
     /*
-      The proportion between the keeperPayout and the amount of collateral that's in the SAFE to be saved. It ensures there's no
-      incentive to put a SAFE underwater and then save it just to make a profit
+      The proportion between the keeperPayout and the amount of collateral that's in a SAFE to be saved. Alternatively, it can be
+      the proportion between the fiat value of keeperPayout and the fiat value of the profit that a keeper could make if a SAFE is liquidated
+      right now. It ensures there's no incentive to intentionally put a SAFE underwater and then save it just to make a profit that's greater than the one from
+      participating in collateral auctions
     */
     uint256 public payoutToSAFESize;
     // The default collateralization ratio a SAFE should have after it's saved
@@ -80,7 +82,7 @@ abstract contract SafeSaviourLike {
 
     // --- Events ---
     event SetDesiredCollateralizationRatio(address indexed caller, uint256 indexed safeID, address indexed safeHandler, uint256 cRatio);
-    event SaveSAFE(address indexed keeper, bytes32 indexed collateralType, address indexed safeHandler, uint256 collateralAdded);
+    event SaveSAFE(address indexed keeper, bytes32 indexed collateralType, address indexed safeHandler, uint256 collateralAddedOrDebtRepaid);
 
     // --- Functions to Implement ---
     function saveSAFE(address,bytes32,address) virtual external returns (bool,uint256,uint256);
