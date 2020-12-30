@@ -24,7 +24,9 @@ import "./ERC20Like.sol";
 import "./GebSafeManagerLike.sol";
 import "./SAFESaviourRegistryLike.sol";
 
-abstract contract SafeSaviourLike {
+import "../utils/ReentrancyGuard.sol";
+
+abstract contract SafeSaviourLike is ReentrancyGuard {
     // Checks whether a saviour contract has been approved by governance in the LiquidationEngine
     modifier liquidationEngineApproved(address saviour) {
         require(liquidationEngine.safeSaviours(saviour) == 1, "SafeSaviour/not-approved-in-liquidation-engine");

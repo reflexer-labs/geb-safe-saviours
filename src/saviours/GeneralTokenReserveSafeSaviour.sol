@@ -82,7 +82,7 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
     * @param safeID The ID of the SAFE to protect. This ID should be registered inside GebSafeManager
     * @param collateralTokenAmount The amount of collateralToken to deposit
     */
-    function deposit(uint256 safeID, uint256 collateralTokenAmount) external liquidationEngineApproved(address(this)) {
+    function deposit(uint256 safeID, uint256 collateralTokenAmount) external liquidationEngineApproved(address(this)) nonReentrant {
         require(collateralTokenAmount > 0, "GeneralTokenReserveSafeSaviour/null-collateralToken-amount");
 
         // Check that the SAFE exists inside GebSafeManager
@@ -106,7 +106,7 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
     * @param safeID The ID of the SAFE to remove cover from. This ID should be registered inside GebSafeManager
     * @param collateralTokenAmount The amount of collateralToken to withdraw
     */
-    function withdraw(uint256 safeID, uint256 collateralTokenAmount) external controlsSAFE(msg.sender, safeID) {
+    function withdraw(uint256 safeID, uint256 collateralTokenAmount) external controlsSAFE(msg.sender, safeID) nonReentrant {
         require(collateralTokenAmount > 0, "GeneralTokenReserveSafeSaviour/null-collateralToken-amount");
 
         // Fetch the handler from the SAFE manager
