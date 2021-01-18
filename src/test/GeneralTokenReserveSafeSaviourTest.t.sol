@@ -350,7 +350,6 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
             address(collateralA),
             address(liquidationEngine),
             address(oracleRelayer),
-            address(safeEngine),
             address(safeManager),
             address(saviourRegistry),
             keeperPayout,
@@ -637,6 +636,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         assertTrue(saviour.keeperPayoutExceedsMinValue());
         assertTrue(saviour.canSave(safeHandler));
 
+        // Can't save because the SAFE saviour registry break time hasn't elapsed
         uint auction = liquidationEngine.liquidateSAFE("gold", safeHandler);
         assertEq(auction, 1);
     }
@@ -646,7 +646,6 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
             address(collateralA),
             address(liquidationEngine),
             address(oracleRelayer),
-            address(safeEngine),
             address(safeManager),
             address(saviourRegistry),
             keeperPayout,
@@ -676,6 +675,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         assertTrue(secondSaviour.keeperPayoutExceedsMinValue());
         assertTrue(secondSaviour.canSave(safeHandler));
 
+        // Can't save because the SAFE saviour registry break time hasn't elapsed
         uint auction = liquidationEngine.liquidateSAFE("gold", safeHandler);
         assertEq(auction, 1);
     }

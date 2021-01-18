@@ -52,10 +52,10 @@ abstract contract SafeSaviourLike is ReentrancyGuard {
     // The minimum fiat value that the keeper must get in exchange for saving a SAFE
     uint256 public minKeeperPayoutValue;
     /*
-      The proportion between the keeperPayout and the amount of collateral that's in a SAFE to be saved. Alternatively, it can be
-      the proportion between the fiat value of keeperPayout and the fiat value of the profit that a keeper could make if a SAFE is liquidated
-      right now. It ensures there's no incentive to intentionally put a SAFE underwater and then save it just to make a profit that's greater than the one from
-      participating in collateral auctions
+      The proportion between the keeperPayout (if it's in collateral) and the amount of collateral that's in a SAFE to be saved.
+      Alternatively, it can be the proportion between the fiat value of keeperPayout and the fiat value of the profit that a keeper
+      could make if a SAFE is liquidated right now. It ensures there's no incentive to intentionally put a SAFE underwater and then
+      save it just to make a profit that's greater than the one from participating in collateral auctions
     */
     uint256 public payoutToSAFESize;
     // The default collateralization ratio a SAFE should have after it's saved
@@ -69,6 +69,7 @@ abstract contract SafeSaviourLike is ReentrancyGuard {
     uint256 public constant HUNDRED           = 100;
     uint256 public constant THOUSAND          = 1000;
     uint256 public constant CRATIO_SCALE_DOWN = 10**25;
+    uint256 public constant WAD_COMPLEMENT    = 10**9;
     uint256 public constant WAD               = 10**18;
     uint256 public constant RAY               = 10**27;
     uint256 public constant MAX_CRATIO        = 1000;

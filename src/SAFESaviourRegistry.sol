@@ -23,13 +23,13 @@ contract SAFESaviourRegistry {
     * @notice Checks whether msg.sender can call an authed function
     **/
     modifier isAuthorized {
-        require(authorizedAccounts[msg.sender] == 1, "SaviourRegistry/account-not-authorized");
+        require(authorizedAccounts[msg.sender] == 1, "SAFESaviourRegistry/account-not-authorized");
         _;
     }
 
     // --- Other Modifiers ---
     modifier isSaviour {
-        require(saviours[msg.sender] == 1, "SaviourRegistry/not-a-saviour");
+        require(saviours[msg.sender] == 1, "SAFESaviourRegistry/not-a-saviour");
         _;
     }
 
@@ -51,7 +51,7 @@ contract SAFESaviourRegistry {
     event MarkSave(bytes32 indexed collateralType, address indexed safeHandler);
 
     constructor(uint256 saveCooldown_) public {
-        require(saveCooldown_ > 0, "SaviourRegistry/null-save-cooldown");
+        require(saveCooldown_ > 0, "SAFESaviourRegistry/null-save-cooldown");
         authorizedAccounts[msg.sender] = 1;
         saveCooldown = saveCooldown_;
         emit ModifyParameters("saveCooldown", saveCooldown_);
@@ -64,7 +64,7 @@ contract SAFESaviourRegistry {
 
     // --- Math ---
     function addition(uint256 x, uint256 y) internal pure returns (uint256 z) {
-        require((z = x + y) >= x, "SaviourRegistry/add-uint-uint-overflow");
+        require((z = x + y) >= x, "SAFESaviourRegistry/add-uint-uint-overflow");
     }
 
     // --- Administration ---
@@ -74,10 +74,10 @@ contract SAFESaviourRegistry {
     * @param val The new value for the param
     */
     function modifyParameters(bytes32 parameter, uint256 val) external isAuthorized {
-        require(val > 0, "SaviourRegistry/null-val");
+        require(val > 0, "SAFESaviourRegistry/null-val");
         if (parameter == "saveCooldown") {
           saveCooldown = val;
-        } else revert("SaviourRegistry/modify-unrecognized-param");
+        } else revert("SAFESaviourRegistry/modify-unrecognized-param");
         emit ModifyParameters(parameter, val);
     }
     /*
@@ -103,7 +103,7 @@ contract SAFESaviourRegistry {
         require(
           either(lastSaveTime[collateralType][safeHandler] == 0,
           addition(lastSaveTime[collateralType][safeHandler], saveCooldown) < now),
-          "SaviourRegistry/wait-more-to-save"
+          "SAFESaviourRegistry/wait-more-to-save"
         );
         lastSaveTime[collateralType][safeHandler] = now;
         emit MarkSave(collateralType, safeHandler);

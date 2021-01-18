@@ -35,7 +35,6 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
       address collateralJoin_,
       address liquidationEngine_,
       address oracleRelayer_,
-      address safeEngine_,
       address safeManager_,
       address saviourRegistry_,
       uint256 keeperPayout_,
@@ -46,7 +45,6 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
         require(collateralJoin_ != address(0), "GeneralTokenReserveSafeSaviour/null-collateral-join");
         require(liquidationEngine_ != address(0), "GeneralTokenReserveSafeSaviour/null-liquidation-engine");
         require(oracleRelayer_ != address(0), "GeneralTokenReserveSafeSaviour/null-oracle-relayer");
-        require(safeEngine_ != address(0), "GeneralTokenReserveSafeSaviour/null-safe-engine");
         require(safeManager_ != address(0), "GeneralTokenReserveSafeSaviour/null-safe-manager");
         require(saviourRegistry_ != address(0), "GeneralTokenReserveSafeSaviour/null-saviour-registry");
         require(keeperPayout_ > 0, "GeneralTokenReserveSafeSaviour/invalid-keeper-payout");
@@ -61,11 +59,12 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
         liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
         collateralJoin       = CollateralJoinLike(collateralJoin_);
         oracleRelayer        = OracleRelayerLike(oracleRelayer_);
-        safeEngine           = SAFEEngineLike(safeEngine_);
+        safeEngine           = SAFEEngineLike(collateralJoin.safeEngine());
         safeManager          = GebSafeManagerLike(safeManager_);
         saviourRegistry      = SAFESaviourRegistryLike(saviourRegistry_);
         collateralToken      = ERC20Like(collateralJoin.collateral());
 
+        require(address(safeEngine) != address(0), "GeneralTokenReserveSafeSaviour/null-safe-engine");
         uint256 scaledLiquidationRatio = oracleRelayer.liquidationCRatio(collateralJoin.collateralType()) / CRATIO_SCALE_DOWN;
 
         require(scaledLiquidationRatio > 0, "GeneralTokenReserveSafeSaviour/invalid-scaled-liq-ratio");
