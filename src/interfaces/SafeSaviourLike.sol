@@ -48,9 +48,9 @@ abstract contract SafeSaviourLike is ReentrancyGuard {
     SAFESaviourRegistryLike public saviourRegistry;
 
     // The amount of tokens the keeper gets in exchange for the gas spent to save a SAFE
-    uint256 public keeperPayout;
+    uint256 public keeperPayout;          // [wad]
     // The minimum fiat value that the keeper must get in exchange for saving a SAFE
-    uint256 public minKeeperPayoutValue;
+    uint256 public minKeeperPayoutValue;  // [wad]
     /*
       The proportion between the keeperPayout (if it's in collateral) and the amount of collateral that's in a SAFE to be saved.
       Alternatively, it can be the proportion between the fiat value of keeperPayout and the fiat value of the profit that a keeper
@@ -59,7 +59,7 @@ abstract contract SafeSaviourLike is ReentrancyGuard {
     */
     uint256 public payoutToSAFESize;
     // The default collateralization ratio a SAFE should have after it's saved
-    uint256 public defaultDesiredCollateralizationRatio;
+    uint256 public defaultDesiredCollateralizationRatio;  // [percentage]
 
     // Desired CRatios for each SAFE after they're saved
     mapping(bytes32 => mapping(address => uint256)) public desiredCollateralizationRatios;
