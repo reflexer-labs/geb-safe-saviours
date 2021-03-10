@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pragma solidity 0.6.7;
+pragma solidity ^0.6.7;
 
 import "../interfaces/SafeSaviourLike.sol";
 import "../math/SafeMath.sol";

@@ -1,4 +1,4 @@
-pragma solidity 0.6.7;
+pragma solidity ^0.6.7;
 
 abstract contract GebSafeManagerLike {
     function safes(uint256) virtual public view returns (address);

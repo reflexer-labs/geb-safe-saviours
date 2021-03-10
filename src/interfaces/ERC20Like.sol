@@ -1,4 +1,4 @@
-pragma solidity 0.6.7;
+pragma solidity ^0.6.7;
 
 abstract contract ERC20Like {
     function approve(address guy, uint wad) virtual public returns (bool);
