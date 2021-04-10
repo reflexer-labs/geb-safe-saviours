@@ -1,4 +1,4 @@
-pragma solidity ^0.6.7;
+/* pragma solidity ^0.6.7;
 pragma experimental ABIEncoderV2;
 
 import "ds-test/test.sol";
@@ -679,4 +679,4 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         uint auction = liquidationEngine.liquidateSAFE("gold", safeHandler);
         assertEq(auction, 1);
     }
-}
+} */
