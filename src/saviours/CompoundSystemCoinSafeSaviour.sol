@@ -184,7 +184,9 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     */
     function deposit(bytes32 collateralType, uint256 safeID, uint256 systemCoinAmount)
       external liquidationEngineApproved(address(this)) nonReentrant {
+        uint256 defaultCRatio = cRatioSetter.defaultDesiredCollateralizationRatios(collateralType);
         require(systemCoinAmount > 0, "CompoundSystemCoinSafeSaviour/null-system-coin-amount");
+        require(defaultCRatio > 0, "CompoundSystemCoinSafeSaviour/collateral-not-set");
 
         // Check that the SAFE exists inside GebSafeManager
         address safeHandler = safeManager.safes(safeID);
@@ -353,15 +355,15 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         (uint256 priceFeedValue, bool hasValidValue) = systemCoinOrcl.getResultWithValidity();
 
         // If the SAFE doesn't have debt or if the price feed is faulty, abort
-        if (either(safeDebt == 0, either(priceFeedValue == 0, !hasValidValue))) {
+        uint256 defaultCRatio = cRatioSetter.defaultDesiredCollateralizationRatios(collateralType);
+        if (either(either(safeDebt == 0, either(priceFeedValue == 0, !hasValidValue)), defaultCRatio == 0)) {
             tokenAmountUsed = MAX_UINT;
             return tokenAmountUsed;
         }
 
         // Calculate the amount of debt that needs to be repaid so the SAFE gets to the target CRatio
         uint256 targetCRatio = (cRatioSetter.desiredCollateralizationRatios(collateralType, safeHandler) == 0) ?
-          cRatioSetter.defaultDesiredCollateralizationRatios(collateralType) :
-          cRatioSetter.desiredCollateralizationRatios(collateralType, safeHandler);
+          defaultCRatio : cRatioSetter.desiredCollateralizationRatios(collateralType, safeHandler);
 
         uint256 targetDebtAmount = mul(
           mul(targetCRatio, mul(depositedCollateralToken, priceFeedValue) / WAD) / HUNDRED, oracleRelayer.redemptionPrice()
