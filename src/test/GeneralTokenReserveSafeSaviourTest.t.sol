@@ -1,4 +1,4 @@
-/* pragma solidity ^0.6.7;
+pragma solidity ^0.6.7;
 pragma experimental ABIEncoderV2;
 
 import "ds-test/test.sol";
@@ -13,6 +13,7 @@ import {OracleRelayer} from 'geb/OracleRelayer.sol';
 import {EnglishCollateralAuctionHouse} from 'geb/CollateralAuctionHouse.sol';
 import {GebSafeManager} from "geb-safe-manager/GebSafeManager.sol";
 
+import {SaviourCRatioSetter} from "../SaviourCRatioSetter.sol";
 import {SAFESaviourRegistry} from "../SAFESaviourRegistry.sol";
 import {GeneralTokenReserveSafeSaviour} from "../saviours/GeneralTokenReserveSafeSaviour.sol";
 
@@ -159,10 +160,12 @@ contract FakeUser {
 
     function doSetDesiredCollateralizationRatio(
         GeneralTokenReserveSafeSaviour saviour,
+        SaviourCRatioSetter cRatioSetter,
+        bytes32 collateralType,
         uint safe,
         uint cRatio
     ) public {
-        saviour.setDesiredCollateralizationRatio(safe, cRatio);
+        cRatioSetter.setDesiredCollateralizationRatio(collateralType, safe, cRatio);
     }
 }
 
@@ -186,6 +189,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
     DSToken gold;
 
     GeneralTokenReserveSafeSaviour saviour;
+    SaviourCRatioSetter cRatioSetter;
     SAFESaviourRegistry saviourRegistry;
 
     FakeUser alice;
@@ -238,18 +242,18 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         default_modify_collateralization(safe, safeHandler);
 
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetDesiredCollateralizationRatio(saviour, safe, desiredCRatio);
+        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, desiredCRatio);
         assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
 
         goldMedian.updateCollateralPrice(3 ether);
         goldFSM.updateCollateralPrice(3 ether);
         oracleRelayer.updateCollateralPrice("gold");
 
-        gold.mint(address(alice), saviour.tokenAmountUsedToSave(safeHandler) + saviour.keeperPayout());
-        alice.doDeposit(saviour, gold, safe, saviour.tokenAmountUsedToSave(safeHandler) + saviour.keeperPayout());
+        gold.mint(address(alice), saviour.tokenAmountUsedToSave("gold", safeHandler) + saviour.keeperPayout());
+        alice.doDeposit(saviour, gold, safe, saviour.tokenAmountUsedToSave("gold", safeHandler) + saviour.keeperPayout());
 
         assertTrue(saviour.keeperPayoutExceedsMinValue());
-        assertTrue(saviour.canSave(safeHandler));
+        assertTrue(saviour.canSave("gold", safeHandler));
 
         liquidationEngine.modifyParameters("gold", "liquidationQuantity", rad(111 ether));
         liquidationEngine.modifyParameters("gold", "liquidationPenalty", 1.1 ether);
@@ -272,11 +276,11 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         goldFSM.updateCollateralPrice(3 ether);
         oracleRelayer.updateCollateralPrice("gold");
 
-        gold.mint(address(alice), saviour.tokenAmountUsedToSave(safeHandler) + saviour.keeperPayout());
-        alice.doDeposit(saviour, gold, safe, saviour.tokenAmountUsedToSave(safeHandler) + saviour.keeperPayout());
+        gold.mint(address(alice), saviour.tokenAmountUsedToSave("gold", safeHandler) + saviour.keeperPayout());
+        alice.doDeposit(saviour, gold, safe, saviour.tokenAmountUsedToSave("gold", safeHandler) + saviour.keeperPayout());
 
         assertTrue(saviour.keeperPayoutExceedsMinValue());
-        assertTrue(saviour.canSave(safeHandler));
+        assertTrue(saviour.canSave("gold", safeHandler));
 
         liquidationEngine.modifyParameters("gold", "liquidationQuantity", rad(111 ether));
         liquidationEngine.modifyParameters("gold", "liquidationPenalty", 1.1 ether);
@@ -285,7 +289,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         assertEq(auction, 0);
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("gold", safeHandler);
-        assertEq(lockedCollateral * 3E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), saviour.defaultDesiredCollateralizationRatio());
+        assertEq(lockedCollateral * 3E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), cRatioSetter.defaultDesiredCollateralizationRatios("gold"));
     }
 
     function setUp() public {
@@ -346,7 +350,11 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         oracleRelayer.updateCollateralPrice("gold");
 
         saviourRegistry = new SAFESaviourRegistry(saveCooldown);
+        cRatioSetter = new SaviourCRatioSetter(address(oracleRelayer), address(safeManager));
+        cRatioSetter.setDefaultCRatio("gold", defaultDesiredCollateralizationRatio);
+
         saviour = new GeneralTokenReserveSafeSaviour(
+            address(cRatioSetter),
             address(collateralA),
             address(liquidationEngine),
             address(oracleRelayer),
@@ -354,8 +362,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
             address(saviourRegistry),
             keeperPayout,
             minKeeperPayoutValue,
-            payoutToSAFESize,
-            defaultDesiredCollateralizationRatio
+            payoutToSAFESize
         );
         saviourRegistry.toggleSaviour(address(saviour));
         liquidationEngine.connectSAFESaviour(address(saviour));
@@ -477,24 +484,24 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
         address safeHandler = safeManager.safes(safe);
 
-        alice.doSetDesiredCollateralizationRatio(saviour, safe, 151);
-        assertEq(saviour.desiredCollateralizationRatios("gold", safeHandler), 151);
+        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, 151);
+        assertEq(cRatioSetter.desiredCollateralizationRatios("gold", safeHandler), 151);
     }
     function test_set_desired_cratio_by_approved() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
         address safeHandler = safeManager.safes(safe);
         alice.doSafeAllow(safeManager, safe, address(this), 1);
-        saviour.setDesiredCollateralizationRatio(safe, 151);
-        assertEq(saviour.desiredCollateralizationRatios("gold", safeHandler), 151);
+        cRatioSetter.setDesiredCollateralizationRatio("gold", safe, 151);
+        assertEq(cRatioSetter.desiredCollateralizationRatios("gold", safeHandler), 151);
     }
     function testFail_set_desired_cratio_by_unauthed() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
-        saviour.setDesiredCollateralizationRatio(safe, 151);
+        cRatioSetter.setDesiredCollateralizationRatio("gold", safe, 151);
     }
     function testFail_set_desired_cratio_above_max_limit() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
         alice.doSafeAllow(safeManager, safe, address(this), 1);
-        saviour.setDesiredCollateralizationRatio(safe, saviour.MAX_CRATIO() + 1);
+        cRatioSetter.setDesiredCollateralizationRatio("gold", safe, cRatioSetter.MAX_CRATIO() + 1);
     }
     function test_liquidate_no_saviour_set() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
@@ -521,12 +528,12 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         default_modify_collateralization(safe, safeHandler);
 
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetDesiredCollateralizationRatio(saviour, safe, 200);
+        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, 200);
 
         assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
-        assertTrue(!saviour.canSave(safeHandler));
+        assertTrue(!saviour.canSave("gold", safeHandler));
         assertTrue(saviour.keeperPayoutExceedsMinValue());
-        assertEq(saviour.tokenAmountUsedToSave(safeHandler), 13333333333333333333);
+        assertEq(saviour.tokenAmountUsedToSave("gold", safeHandler), 13333333333333333333);
 
         default_liquidate_safe(safeHandler);
     }
@@ -537,7 +544,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         default_modify_collateralization(safe, safeHandler);
 
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetDesiredCollateralizationRatio(saviour, safe, 200);
+        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, 200);
 
         assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
         assertTrue(saviour.keeperPayoutExceedsMinValue());
@@ -546,7 +553,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         gold.transfer(address(alice), saviour.keeperPayout());
         alice.doDeposit(saviour, gold, safe, saviour.keeperPayout());
 
-        assertTrue(!saviour.canSave(safeHandler));
+        assertTrue(!saviour.canSave("gold", safeHandler));
         default_liquidate_safe(safeHandler);
     }
     function test_liquidate_cover_only_no_keeper_payout() public {
@@ -556,13 +563,13 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         default_modify_collateralization(safe, safeHandler);
 
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetDesiredCollateralizationRatio(saviour, safe, 200);
+        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, 200);
         assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
 
-        gold.transfer(address(alice), saviour.tokenAmountUsedToSave(safeHandler));
-        alice.doDeposit(saviour, gold, safe, saviour.tokenAmountUsedToSave(safeHandler));
+        gold.transfer(address(alice), saviour.tokenAmountUsedToSave("gold", safeHandler));
+        alice.doDeposit(saviour, gold, safe, saviour.tokenAmountUsedToSave("gold", safeHandler));
 
-        assertTrue(!saviour.canSave(safeHandler));
+        assertTrue(!saviour.canSave("gold", safeHandler));
         default_liquidate_safe(safeHandler);
     }
     function test_liquidate_keeper_payout_value_small() public {
@@ -572,7 +579,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         default_modify_collateralization(safe, safeHandler);
 
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetDesiredCollateralizationRatio(saviour, safe, 200);
+        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, 200);
         assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
 
         goldMedian.updateCollateralPrice(0.02 ether - 1);
@@ -581,11 +588,11 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
         assertEq(saviour.getKeeperPayoutValue(), 9999999999999999);
 
-        gold.mint(address(alice), saviour.tokenAmountUsedToSave(safeHandler) + saviour.keeperPayout());
-        alice.doDeposit(saviour, gold, safe, saviour.tokenAmountUsedToSave(safeHandler) + saviour.keeperPayout());
+        gold.mint(address(alice), saviour.tokenAmountUsedToSave("gold", safeHandler) + saviour.keeperPayout());
+        alice.doDeposit(saviour, gold, safe, saviour.tokenAmountUsedToSave("gold", safeHandler) + saviour.keeperPayout());
 
         assertTrue(!saviour.keeperPayoutExceedsMinValue());
-        assertTrue(saviour.canSave(safeHandler));
+        assertTrue(saviour.canSave("gold", safeHandler));
 
         // Liquidate with the current 0.02 ether - 1 price
         oracleRelayer.updateCollateralPrice("gold");
@@ -613,7 +620,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
     function test_successfully_save_max_cratio() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
         address safeHandler = safeManager.safes(safe);
-        default_save(safe, safeHandler, saviour.MAX_CRATIO());
+        default_save(safe, safeHandler, cRatioSetter.MAX_CRATIO());
     }
     function test_successfully_save_default_cratio() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
@@ -630,11 +637,11 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         goldFSM.updateCollateralPrice(2 ether);
         oracleRelayer.updateCollateralPrice("gold");
 
-        gold.mint(address(alice), saviour.tokenAmountUsedToSave(safeHandler) + saviour.keeperPayout());
-        alice.doDeposit(saviour, gold, safe, saviour.tokenAmountUsedToSave(safeHandler) + saviour.keeperPayout());
+        gold.mint(address(alice), saviour.tokenAmountUsedToSave("gold", safeHandler) + saviour.keeperPayout());
+        alice.doDeposit(saviour, gold, safe, saviour.tokenAmountUsedToSave("gold", safeHandler) + saviour.keeperPayout());
 
         assertTrue(saviour.keeperPayoutExceedsMinValue());
-        assertTrue(saviour.canSave(safeHandler));
+        assertTrue(saviour.canSave("gold", safeHandler));
 
         // Can't save because the SAFE saviour registry break time hasn't elapsed
         uint auction = liquidationEngine.liquidateSAFE("gold", safeHandler);
@@ -643,6 +650,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
     function test_liquidate_twice_in_row_different_saviours() public {
         // Create a new saviour and set it up
         GeneralTokenReserveSafeSaviour secondSaviour = new GeneralTokenReserveSafeSaviour(
+            address(cRatioSetter),
             address(collateralA),
             address(liquidationEngine),
             address(oracleRelayer),
@@ -650,8 +658,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
             address(saviourRegistry),
             keeperPayout,
             minKeeperPayoutValue,
-            payoutToSAFESize,
-            defaultDesiredCollateralizationRatio
+            payoutToSAFESize
         );
         saviourRegistry.toggleSaviour(address(secondSaviour));
         liquidationEngine.connectSAFESaviour(address(secondSaviour));
@@ -669,14 +676,14 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         goldFSM.updateCollateralPrice(1.5 ether);
         oracleRelayer.updateCollateralPrice("gold");
 
-        gold.mint(address(alice), secondSaviour.tokenAmountUsedToSave(safeHandler) + secondSaviour.keeperPayout());
-        alice.doDeposit(secondSaviour, gold, safe, secondSaviour.tokenAmountUsedToSave(safeHandler) + secondSaviour.keeperPayout());
+        gold.mint(address(alice), secondSaviour.tokenAmountUsedToSave("gold", safeHandler) + secondSaviour.keeperPayout());
+        alice.doDeposit(secondSaviour, gold, safe, secondSaviour.tokenAmountUsedToSave("gold", safeHandler) + secondSaviour.keeperPayout());
 
         assertTrue(secondSaviour.keeperPayoutExceedsMinValue());
-        assertTrue(secondSaviour.canSave(safeHandler));
+        assertTrue(secondSaviour.canSave("gold", safeHandler));
 
         // Can't save because the SAFE saviour registry break time hasn't elapsed
         uint auction = liquidationEngine.liquidateSAFE("gold", safeHandler);
         assertEq(auction, 1);
     }
-} */
+}
