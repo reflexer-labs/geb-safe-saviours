@@ -354,7 +354,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         (uint256 depositedCollateralToken, uint256 safeDebt) = safeEngine.safes(collateralType, safeHandler);
         (uint256 priceFeedValue, bool hasValidValue) = systemCoinOrcl.getResultWithValidity();
 
-        // If the SAFE doesn't have debt or if the price feed is faulty, abort
+        // If the SAFE doesn't have debt, if the price feed is faulty or if the default CRatio is null, abort
         uint256 defaultCRatio = cRatioSetter.defaultDesiredCollateralizationRatios(collateralType);
         if (either(either(safeDebt == 0, either(priceFeedValue == 0, !hasValidValue)), defaultCRatio == 0)) {
             tokenAmountUsed = MAX_UINT;

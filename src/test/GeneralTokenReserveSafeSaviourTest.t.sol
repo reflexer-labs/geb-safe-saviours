@@ -297,7 +297,6 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         hevm.warp(604411200);
 
         safeEngine = new TestSAFEEngine();
-        safeEngine = safeEngine;
 
         goldFSM    = new Feed(3.75 ether, true);
         goldMedian = new Feed(3.75 ether, true);

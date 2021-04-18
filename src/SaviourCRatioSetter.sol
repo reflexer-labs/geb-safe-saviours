@@ -38,7 +38,7 @@ contract SaviourCRatioSetter is SafeMath, SaviourCRatioSetterLike {
         else revert("SaviourCRatioSetter/modify-unrecognized-param");
     }
     /**
-     * @notice Modify an uint256 param
+     * @notice Set the default desired CRatio for a specific collateral type
      * @param collateralType The name of the collateral type to set the default CRatio for
      * @param cRatio New default collateralization ratio
      */

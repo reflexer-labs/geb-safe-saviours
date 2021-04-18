@@ -295,6 +295,12 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
         uint256 targetCRatio = (cRatioSetter.desiredCollateralizationRatios(collateralType, safeHandler) == 0) ?
           cRatioSetter.defaultDesiredCollateralizationRatios(collateralJoin.collateralType()) :
           cRatioSetter.desiredCollateralizationRatios(collateralJoin.collateralType(), safeHandler);
+
+        if (targetCRatio == 0) {
+            tokenAmountUsed = MAX_UINT;
+            return tokenAmountUsed;
+        }
+
         uint256 scaledDownDebtValue = mul(add(mul(oracleRelayer.redemptionPrice(), safeDebt) / RAY, ONE), targetCRatio) / HUNDRED;
 
         // Compute the amount of collateralToken the SAFE needs to get to the desired CRatio
