@@ -1,6 +1,6 @@
 pragma solidity ^0.6.7;
 
-import "./CarefulMath.sol";
+import "../../math/CarefulMath.sol";
 import "./ExponentialNoError.sol";
 
 /**

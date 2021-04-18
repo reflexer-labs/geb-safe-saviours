@@ -297,7 +297,7 @@ contract CDelegateInterface is CDelegationStorage {
      */
     function _becomeImplementation(bytes memory data) virtual public {}
 
-    /**
+    /**admin
      * @notice Called by the delegator on a delegate to forfeit its responsibility
      */
     function _resignImplementation() virtual public {}
