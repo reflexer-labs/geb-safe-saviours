@@ -309,6 +309,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         goldFSM.updatePriceSource(address(goldMedian));
 
         oracleRelayer = new OracleRelayer(address(safeEngine));
+        oracleRelayer.modifyParameters("redemptionPrice", ray(systemCoinPrice));
         oracleRelayer.modifyParameters("gold", "orcl", address(goldFSM));
         oracleRelayer.modifyParameters("gold", "safetyCRatio", ray(minCRatio));
         oracleRelayer.modifyParameters("gold", "liquidationCRatio", ray(minCRatio));
@@ -392,6 +393,153 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
     }
 
     function test_setup() public {
+
+    }
+    function testFail_modifyParameters_uint_unauthorized() public {
+
+    }
+    function test_modifyParameters_uint() public {
+
+    }
+    function testFail_modifyParameters_address_unauthorized() public {
+
+    }
+    function test_modifyParameters_address() public {
+
+    }
+    function testFail_deposit_liq_engine_not_approved() public {
+
+    }
+    function testFail_deposit_null_sys_coin_amount() public {
+
+    }
+    function testFail_deposit_null_default_cratio() public {
+
+    }
+    function testFail_deposit_inexistent_safe() public {
+
+    }
+    function test_deposit_no_prior_compound_liquidity() public {
+
+    }
+    function test_deposit_twice() public {
+
+    }
+    function test_deposit_when_borrow_activity() public {
+
+    }
+    function test_deposit_after_everything_withdrawn() public {
+
+    }
+    function testFail_withdraw_unauthorized() public {
+
+    }
+    function testFail_withdraw_more_than_deposited() public {
+
+    }
+    function testFail_withdraw_null() public {
+
+    }
+    function testFail_withdraw_everything_lent_is_borrowed() public {
+
+    }
+    function test_withdraw() public {
+
+    }
+    function test_withdraw_after_earning_interest() public {
+
+    }
+    function test_withdraw_twice() public {
+
+    }
+    function test_keeperPayoutExceedsMinValue_valid_orcl_result() public {
+
+    }
+    function test_keeperPayoutExceedsMinValue_invalid_orcl_result() public {
+
+    }
+    function test_keeperPayoutExceedsMinValue_null_orcl_result() public {
+
+    }
+    function test_getKeeperPayoutValue_valid_orcl_result() public {
+
+    }
+    function test_getKeeperPayoutValue_invalid_orcl_result() public {
+
+    }
+    function test_getKeeperPayoutValue_null_orcl_result() public {
+
+    }
+    function test_tokenAmountUsedToSave_invalid_price() public {
+
+    }
+    function test_tokenAmountUsedToSave_null_price() public {
+
+    }
+    function test_tokenAmountUsedToSave_null_default_cratio() public {
+
+    }
+    function test_tokenAmountUsedToSave_null_safe_debt() public {
+
+    }
+    function test_tokenAmountUsedToSave() public {
+
+    }
+    function test_tokenAmountUsedToSave_custom_desired_cratio() public {
+
+    }
+    function test_tokenAmountUsedToSave_tiny_redemption_price() public {
+
+    }
+    function test_tokenAmountUsedToSave_after_accrued_ctoken_interest() public {
+
+    }
+    function test_canSave_invalid_price() public {
+
+    }
+    function test_canSave_null_price() public {
+
+    }
+    function test_canSave_null_default_cratio() public {
+
+    }
+    function test_canSave_null_safe_debt() public {
+
+    }
+    function test_canSave() public {
+
+    }
+    function test_canSave_custom_desired_cratio() public {
+
+    }
+    function test_canSave_tiny_redemption_price() public {
+
+    }
+    function test_canSave_after_accrued_ctoken_interest() public {
+
+    }
+    function testFail_saveSAFE_invalid_caller() public {
+
+    }
+    function testFail_saveSAFE_invalid_caller() public {
+
+    }
+    function testFail_saveSAFE_small_payout() public {
+
+    }
+    function testFail_invalid_token_amount_used() public {
+
+    }
+    function testFail_insufficient_ctoken_cover() public {
+
+    }
+    function test_saveSAFE_high_cratio() public {
+
+    }
+    function test_saveSAFE_after_accrued_interest() public {
+
+    }
+    function test_saveSAFE_withdraw() public {
 
     }
 }

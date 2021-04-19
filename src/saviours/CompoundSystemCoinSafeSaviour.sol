@@ -164,9 +164,6 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
             systemCoinOrcl = PriceFeedLike(data);
             systemCoinOrcl.read();
         }
-        else if (parameter == "cRatioSetter") {
-            cRatioSetter = SaviourCRatioSetterLike(data);
-        }
         else if (parameter == "oracleRelayer") {
             oracleRelayer = OracleRelayerLike(data);
             oracleRelayer.redemptionPrice();
@@ -226,9 +223,10 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         // Redeem system coins from Compound and transfer them to the caller
         uint256 currentSystemCoinAmount = systemCoin.balanceOf(address(this));
         cTokenCover[collateralType][safeHandler] = sub(cTokenCover[collateralType][safeHandler], cTokenAmount);
-        cToken.redeem(cTokenAmount);
+        require(cToken.redeem(cTokenAmount) == 0, "CompoundSystemCoinSafeSaviour/cannot-redeem-ctoken");
 
-        systemCoin.transfer(msg.sender, sub(systemCoin.balanceOf(address(this)), currentSystemCoinAmount));
+        uint256 amountTransferred = sub(systemCoin.balanceOf(address(this)), currentSystemCoinAmount);
+        systemCoin.transfer(msg.sender, amountTransferred);
 
         emit Withdraw(
           msg.sender,
@@ -266,7 +264,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
 
         // Check that there are enough cTokens added to cover both the keeper's payout and the amount used to save the SAFE
         uint256 keeperCTokenPayout = div(mul(keeperPayout, WAD), cToken.exchangeRateStored());
-        require(cTokenCover[collateralType][safeHandler] >= add(keeperCTokenPayout, tokenAmountUsed), "GeneralTokenReserveSafeSaviour/not-enough-cover-deposited");
+        require(cTokenCover[collateralType][safeHandler] >= add(keeperCTokenPayout, tokenAmountUsed), "CompoundSystemCoinSafeSaviour/not-enough-cover-deposited");
 
         // Update the remaining cover
         cTokenCover[collateralType][safeHandler] = sub(cTokenCover[collateralType][safeHandler], add(keeperCTokenPayout, tokenAmountUsed));
@@ -276,7 +274,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
 
         // Get system coins back from Compound
         uint256 currentSystemCoinAmount = systemCoin.balanceOf(address(this));
-        cToken.redeem(add(keeperCTokenPayout, tokenAmountUsed));
+        require(cToken.redeem(add(keeperCTokenPayout, tokenAmountUsed)) == 0, "CompoundSystemCoinSafeSaviour/cannot-redeem-ctoken");
         uint256 systemCoinsToRepay = sub(sub(systemCoin.balanceOf(address(this)), currentSystemCoinAmount), keeperPayout);
 
         // Approve the coin join contract to take system coins and repay debt
