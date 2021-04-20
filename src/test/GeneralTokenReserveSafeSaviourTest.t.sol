@@ -324,7 +324,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         safeEngine.addAuthorization(address(liquidationEngine));
         accountingEngine.addAuthorization(address(liquidationEngine));
 
-        gold = new DSToken("GEM", '');
+        gold = new DSToken("GEM", "GEM");
         gold.mint(1000 ether);
 
         safeEngine.initializeCollateralType("gold");

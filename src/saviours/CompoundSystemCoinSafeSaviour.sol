@@ -121,6 +121,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         cToken               = CTokenLike(cToken_);
 
         systemCoinOrcl.read();
+        systemCoinOrcl.getResultWithValidity();
         oracleRelayer.redemptionPrice();
 
         require(cToken.isCToken(), "CompoundSystemCoinSafeSaviour/not-c-token");
@@ -163,6 +164,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         if (parameter == "systemCoinOrcl") {
             systemCoinOrcl = PriceFeedLike(data);
             systemCoinOrcl.read();
+            systemCoinOrcl.getResultWithValidity();
         }
         else if (parameter == "oracleRelayer") {
             oracleRelayer = OracleRelayerLike(data);
@@ -232,7 +234,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
           msg.sender,
           collateralType,
           safeHandler,
-          sub(systemCoin.balanceOf(address(this)), currentSystemCoinAmount),
+          amountTransferred,
           cTokenAmount
         );
     }
@@ -289,7 +291,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
           address(0),
           address(this),
           int256(0),
-          int256(systemCoinsToRepay)
+          -int256(systemCoinsToRepay)
         );
 
         // Send the fee to the keeper
@@ -340,7 +342,8 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
             return false;
         }
 
-        return (cTokenCover[collateralType][safeHandler] >= add(tokenAmountUsed, keeperPayout));
+        uint256 keeperCTokenPayout = div(mul(keeperPayout, WAD), cToken.exchangeRateStored());
+        return (cTokenCover[collateralType][safeHandler] >= add(tokenAmountUsed, keeperCTokenPayout));
     }
     /*
     * @notice Calculate the amount of cTokens used to save a SAFE and bring its CRatio to the desired level
@@ -348,15 +351,17 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     * @param safeHandler The handler of the SAFE which the function takes into account
     * @return The amount of cTokens used to save the SAFE and bring its CRatio to the desired level
     */
-    function tokenAmountUsedToSave(bytes32 collateralType, address safeHandler) override public returns (uint256 tokenAmountUsed) {
+    function tokenAmountUsedToSave(bytes32 collateralType, address safeHandler) override public returns (uint256) {
         (uint256 depositedCollateralToken, uint256 safeDebt) = safeEngine.safes(collateralType, safeHandler);
-        (uint256 priceFeedValue, bool hasValidValue) = systemCoinOrcl.getResultWithValidity();
+        (address ethFSM,,) = oracleRelayer.collateralTypes(collateralType);
+        if (ethFSM == address(0)) return MAX_UINT;
 
-        // If the SAFE doesn't have debt, if the price feed is faulty or if the default CRatio is null, abort
+        (uint256 priceFeedValue, bool hasValidValue) = PriceFeedLike(ethFSM).getResultWithValidity();
+
+        // If the SAFE doesn't have debt, if the price feed is faulty or if the default desired CRatio is null, abort
         uint256 defaultCRatio = cRatioSetter.defaultDesiredCollateralizationRatios(collateralType);
         if (either(either(safeDebt == 0, either(priceFeedValue == 0, !hasValidValue)), defaultCRatio == 0)) {
-            tokenAmountUsed = MAX_UINT;
-            return tokenAmountUsed;
+            return MAX_UINT;
         }
 
         // Calculate the amount of debt that needs to be repaid so the SAFE gets to the target CRatio
@@ -364,7 +369,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
           defaultCRatio : cRatioSetter.desiredCollateralizationRatios(collateralType, safeHandler);
 
         uint256 targetDebtAmount = mul(
-          mul(targetCRatio, mul(depositedCollateralToken, priceFeedValue) / WAD) / HUNDRED, oracleRelayer.redemptionPrice()
+          mul(HUNDRED, mul(depositedCollateralToken, priceFeedValue) / WAD) / targetCRatio, oracleRelayer.redemptionPrice()
         ) / RAY;
 
         // If you need to repay more than the amount of debt in the SAFE (or all the debt), return 0

@@ -108,6 +108,22 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
 
     // --- Administration ---
     /**
+     * @notice Modify an uint256 param
+     * @param parameter The name of the parameter
+     * @param val New value for the parameter
+     */
+    function modifyParameters(bytes32 parameter, uint256 val) external isAuthorized {
+        require(val > 0, "GeneralTokenReserveSafeSaviour/null-value");
+
+        if (parameter == "keeperPayout") {
+            keeperPayout = val;
+        }
+        else if (parameter == "minKeeperPayoutValue") {
+            minKeeperPayoutValue = val;
+        }
+        else revert("GeneralTokenReserveSafeSaviour/modify-unrecognized-param");
+    }
+    /**
      * @notice Modify an address param
      * @param parameter The name of the parameter
      * @param data New address for the parameter

@@ -1,6 +1,7 @@
 pragma solidity ^0.6.7;
 
 abstract contract SAFEEngineLike {
+    function approveSAFEModification(address) virtual external;
     function safeRights(address,address) virtual public view returns (uint256);
     function collateralTypes(bytes32) virtual public view returns (
         uint256 debtAmount,        // [wad]
