@@ -131,8 +131,9 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
     function modifyParameters(bytes32 parameter, address data) external isAuthorized {
         require(data != address(0), "GeneralTokenReserveSafeSaviour/null-data");
 
-        if (parameter == "cRatioSetter") {
-            cRatioSetter = SaviourCRatioSetterLike(data);
+        if (parameter == "oracleRelayer") {
+            oracleRelayer = OracleRelayerLike(data);
+            oracleRelayer.redemptionPrice();
         }
         else revert("GeneralTokenReserveSafeSaviour/modify-unrecognized-param");
     }

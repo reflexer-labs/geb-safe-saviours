@@ -632,9 +632,6 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
 
         alice.doDeposit(saviour, systemCoin, "gold", 1, defaultTokenAmount);
     }
-    /* function test_deposit_while_funds_borrowed() public {
-
-    } */
     function test_deposit_no_prior_compound_liquidity() public {
         default_create_position_deposit_cover();
     }
@@ -693,9 +690,6 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         // Withdraw
         alice.doWithdraw(saviour, "gold", safe, 0);
     }
-    /* function testFail_withdraw_everything_lent_is_borrowed() public {
-
-    } */
     function test_withdraw() public {
         (uint safe, address safeHandler, uint totalSupply) = default_create_position_deposit_cover();
 
@@ -708,9 +702,6 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         assertEq(systemCoin.balanceOf(address(cRAI)), 0);
         assertEq(saviour.cTokenCover("gold", safeHandler), 0);
     }
-    /* function test_withdraw_after_earning_interest() public {
-
-    } */
     function test_withdraw_twice() public {
         (uint safe, address safeHandler, uint totalSupply) = default_create_position_deposit_cover();
 
@@ -781,9 +772,6 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         address safeHandler = default_create_liquidatable_position(400, 1 ether);
         assertEq(saviour.tokenAmountUsedToSave("gold", safeHandler), 99.99999 ether);
     }
-    /* function test_tokenAmountUsedToSave_after_accrued_ctoken_interest() public {
-
-    } */
     function test_canSave_invalid_collateral_price() public {
         address safeHandler = default_create_liquidatable_position_deposit_cover(250, 1 ether);
         goldFSM.changeValidity();
@@ -794,9 +782,6 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         goldFSM.updateCollateralPrice(0);
         assertTrue(!saviour.canSave("gold", safeHandler));
     }
-    /* function test_canSave_null_default_cratio() public {
-
-    } */
     function test_canSave_null_safe_debt() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
         address safeHandler = safeManager.safes(safe);
@@ -822,9 +807,6 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
 
         assertTrue(saviour.canSave("gold", safeHandler));
     }
-    /* function test_canSave_after_accrued_ctoken_interest() public {
-
-    } */
     function testFail_saveSAFE_invalid_caller() public {
         hevm.warp(now + 1);
 
@@ -870,7 +852,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         default_liquidate_safe(safeHandler);
         assertEq(saviourRegistry.lastSaveTime("gold", safeHandler), 0);
     }
-    function test_saveSAFE_insufficient_ctoken_cover() public {
+    function test_saveSAFE_insufficient_ctoken_coverage() public {
         hevm.warp(now + 1);
 
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
@@ -898,12 +880,6 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
 
         assertEq(saviourRegistry.lastSaveTime("gold", safeHandler), now);
     }
-    /* function test_saveSAFE_majority_cover_borrowed() public {
-
-    }
-    function test_saveSAFE_after_accrued_interest() public {
-
-    } */
     function test_saveSAFE_withdraw() public {
         hevm.warp(now + 1);
 
