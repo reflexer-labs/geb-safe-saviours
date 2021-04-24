@@ -26,6 +26,7 @@ contract UniswapV3LiquidityManager is UniswapLiquidityManagerLike, SafeMath {
     * @return The amount of token0 tokens that someone would get back
     */
     function getToken0FromLiquidity(uint256 liquidityAmount) public override view returns (uint256) {
+        if (liquidityAmount == 0) return 0;
         return gebLiquidityManager.getToken0FromLiquidity(liquidityAmount);
     }
     /*
@@ -34,6 +35,7 @@ contract UniswapV3LiquidityManager is UniswapLiquidityManagerLike, SafeMath {
     * @return The amount of token1 tokens that someone would get back
     */
     function getToken1FromLiquidity(uint256 liquidityAmount) public override view returns (uint256) {
+        if (liquidityAmount == 0) return 0;
         return gebLiquidityManager.getToken1FromLiquidity(liquidityAmount);
     }
     /*

@@ -337,7 +337,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     function canSave(bytes32 collateralType, address safeHandler) override external returns (bool) {
         uint256 tokenAmountUsed = tokenAmountUsedToSave(collateralType, safeHandler);
 
-        if (tokenAmountUsed == MAX_UINT) {
+        if (either(tokenAmountUsed == MAX_UINT, tokenAmountUsed == 0)) {
             return false;
         }
 
@@ -351,6 +351,8 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     * @return The amount of cTokens used to save the SAFE and bring its CRatio to the desired level
     */
     function tokenAmountUsedToSave(bytes32 collateralType, address safeHandler) override public returns (uint256) {
+        if (cTokenCover[collateralType][safeHandler] == 0) return 0;
+
         (uint256 depositedCollateralToken, uint256 safeDebt) = safeEngine.safes(collateralType, safeHandler);
         (address ethFSM,,) = oracleRelayer.collateralTypes(collateralType);
         if (ethFSM == address(0)) return MAX_UINT;

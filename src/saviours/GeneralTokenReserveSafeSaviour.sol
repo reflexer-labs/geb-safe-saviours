@@ -278,13 +278,14 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
     }
     /*
     * @notice Determine whether a SAFE can be saved with the current amount of collateralToken deposited as cover for it
+    * @param collateralType The SAFE collateral type (ignored in this implementation)
     * @param safeHandler The handler of the SAFE which the function takes into account
     * @return Whether the SAFE can be saved or not
     */
-    function canSave(bytes32 collateralType, address safeHandler) override external returns (bool) {
+    function canSave(bytes32, address safeHandler) override external returns (bool) {
         uint256 tokenAmountUsed = tokenAmountUsedToSave(collateralJoin.collateralType(), safeHandler);
 
-        if (tokenAmountUsed == MAX_UINT) {
+        if (either(tokenAmountUsed == MAX_UINT, tokenAmountUsed == 0)) {
             return false;
         }
 
@@ -296,28 +297,23 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
     * @param safeHandler The handler of the SAFE which the function takes into account
     * @return The amount of collateralToken used to save the SAFE and bring its CRatio to the desired level
     */
-    function tokenAmountUsedToSave(bytes32 collateralType, address safeHandler) override public returns (uint256 tokenAmountUsed) {
+    function tokenAmountUsedToSave(bytes32, address safeHandler) override public returns (uint256 tokenAmountUsed) {
         (uint256 depositedCollateralToken, uint256 safeDebt) =
           SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
         (address ethFSM,,) = oracleRelayer.collateralTypes(collateralJoin.collateralType());
+        if (ethFSM == address(0)) return MAX_UINT;
         (uint256 priceFeedValue, bool hasValidValue) = PriceFeedLike(ethFSM).getResultWithValidity();
 
-        // If the SAFE doesn't have debt or if the price feed is faulty, abort
-        if (either(safeDebt == 0, either(priceFeedValue == 0, !hasValidValue))) {
+        // If the SAFE doesn't have debt, if the price feed is faulty or if the default desired CRatio is null, abort
+        uint256 defaultCRatio = cRatioSetter.defaultDesiredCollateralizationRatios(collateralJoin.collateralType());
+        if (either(either(safeDebt == 0, either(priceFeedValue == 0, !hasValidValue)), defaultCRatio == 0)) {
             tokenAmountUsed = MAX_UINT;
-            return tokenAmountUsed;
+            return MAX_UINT;
         }
 
         // Calculate the value of the debt equivalent to the value of the collateralToken that would need to be in the SAFE after it's saved
-        uint256 targetCRatio = (cRatioSetter.desiredCollateralizationRatios(collateralType, safeHandler) == 0) ?
-          cRatioSetter.defaultDesiredCollateralizationRatios(collateralJoin.collateralType()) :
-          cRatioSetter.desiredCollateralizationRatios(collateralJoin.collateralType(), safeHandler);
-
-        if (targetCRatio == 0) {
-            tokenAmountUsed = MAX_UINT;
-            return tokenAmountUsed;
-        }
-
+        uint256 targetCRatio = (cRatioSetter.desiredCollateralizationRatios(collateralJoin.collateralType(), safeHandler) == 0) ?
+          defaultCRatio : cRatioSetter.desiredCollateralizationRatios(collateralJoin.collateralType(), safeHandler);
         uint256 scaledDownDebtValue = mul(add(mul(oracleRelayer.redemptionPrice(), safeDebt) / RAY, ONE), targetCRatio) / HUNDRED;
 
         // Compute the amount of collateralToken the SAFE needs to get to the desired CRatio

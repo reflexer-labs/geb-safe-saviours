@@ -33,6 +33,8 @@ contract UniswapV2LiquidityManager is UniswapLiquidityManagerLike, SafeMath {
     * @return The amount of token0 tokens that someone would get back
     */
     function getToken0FromLiquidity(uint256 liquidityAmount) public override view returns (uint256) {
+        if (liquidityAmount == 0) return 0;
+
         (uint256 totalSupply, uint256 cumulativeLPBalance) = getSupplyAndCumulativeLiquidity(liquidityAmount);
         if (either(liquidityAmount == 0, cumulativeLPBalance > totalSupply)) return 0;
 
@@ -44,6 +46,8 @@ contract UniswapV2LiquidityManager is UniswapLiquidityManagerLike, SafeMath {
     * @return The amount of token1 tokens that someone would get back
     */
     function getToken1FromLiquidity(uint256 liquidityAmount) public override view returns (uint256) {
+        if (liquidityAmount == 0) return 0;
+
         (uint256 totalSupply, uint256 cumulativeLPBalance) = getSupplyAndCumulativeLiquidity(liquidityAmount);
         if (either(liquidityAmount == 0, cumulativeLPBalance > totalSupply)) return 0;
 
