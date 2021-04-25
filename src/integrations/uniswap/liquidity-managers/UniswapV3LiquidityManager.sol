@@ -8,6 +8,7 @@ abstract contract GebUniswapV3LiquidityManager {
     function getToken1FromLiquidity(uint256) virtual public view returns (uint256);
     function getLiquidityFromToken0(uint256) virtual public view returns (uint256);
     function getLiquidityFromToken1(uint256) virtual public view returns (uint256);
+    function transferFrom(address, address, uint256) virtual public returns (bool);
     function withdraw(uint256, address, uint128, uint128) virtual external returns (uint256, uint256);
 }
 
@@ -72,6 +73,7 @@ contract UniswapV3LiquidityManager is UniswapLiquidityManagerLike, SafeMath {
         uint128 amount1Min,
         address to
     ) public override returns (uint256 amount0, uint256 amount1) {
+        gebLiquidityManager.transferFrom(msg.sender, address(this), liquidity);
         (amount0, amount1) = gebLiquidityManager.withdraw(
           liquidity,
           to,

@@ -750,26 +750,41 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
     }
     function test_tokenAmountUsedToSave_col_invalid_price() public {
         address safeHandler = default_create_liquidatable_position(250, 3 ether);
+
+        safeEngine.mint(safeHandler, rad(defaultTokenAmount));
+        systemCoin.mint(address(alice), defaultTokenAmount);
+        alice.doDeposit(saviour, systemCoin, "gold", 1, defaultTokenAmount);
+
         goldFSM.changeValidity();
         assertEq(saviour.tokenAmountUsedToSave("gold", safeHandler), uint(-1));
     }
     function test_tokenAmountUsedToSave_null_price() public {
         address safeHandler = default_create_liquidatable_position(200, 1 ether);
+
+        safeEngine.mint(safeHandler, rad(defaultTokenAmount));
+        systemCoin.mint(address(alice), defaultTokenAmount);
+        alice.doDeposit(saviour, systemCoin, "gold", 1, defaultTokenAmount);
+
         goldFSM.updateCollateralPrice(0);
-        assertEq(saviour.tokenAmountUsedToSave("gold", safeHandler), uint(-1));
-    }
-    function test_tokenAmountUsedToSave_null_safe_debt() public {
-        uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
-        address safeHandler = safeManager.safes(safe);
         assertEq(saviour.tokenAmountUsedToSave("gold", safeHandler), uint(-1));
     }
     function test_tokenAmountUsedToSave() public {
         address safeHandler = default_create_liquidatable_position(400, 1 ether);
+
+        safeEngine.mint(safeHandler, rad(defaultTokenAmount));
+        systemCoin.mint(address(alice), defaultTokenAmount);
+        alice.doDeposit(saviour, systemCoin, "gold", 1, defaultTokenAmount);
+
         assertEq(saviour.tokenAmountUsedToSave("gold", safeHandler), 90 ether);
     }
     function test_tokenAmountUsedToSave_tiny_redemption_price() public {
         oracleRelayer.modifyParameters("redemptionPrice", ray(0.000001 ether));
         address safeHandler = default_create_liquidatable_position(400, 1 ether);
+
+        safeEngine.mint(safeHandler, rad(defaultTokenAmount));
+        systemCoin.mint(address(alice), defaultTokenAmount);
+        alice.doDeposit(saviour, systemCoin, "gold", 1, defaultTokenAmount);
+
         assertEq(saviour.tokenAmountUsedToSave("gold", safeHandler), 99.99999 ether);
     }
     function test_canSave_invalid_collateral_price() public {

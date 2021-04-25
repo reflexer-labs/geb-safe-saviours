@@ -99,6 +99,7 @@ contract UniswapV2LiquidityManager is UniswapLiquidityManagerLike, SafeMath {
         uint128 amount1Min,
         address to
     ) public override returns (uint256 amount0, uint256 amount1) {
+        pair.transferFrom(msg.sender, address(this), liquidity);
         pair.approve(address(router), liquidity);
         (amount0, amount1) = router.removeLiquidity(
           pair.token0(),
