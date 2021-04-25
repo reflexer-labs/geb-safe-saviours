@@ -47,6 +47,34 @@ contract NativeUnderlyingUniswapSafeSaviour is SafeMath, SafeSaviourLike {
         _;
     }
 
+    mapping (address => uint256) public allowedUsers;
+    /**
+     * @notice Allow a user to deposit assets
+     * @param usr User to whitelist
+     */
+    function allowUser(address usr) external isAuthorized {
+        allowedUsers[usr] = 1;
+        emit AllowUser(usr);
+    }
+    /**
+     * @notice Disallow a user from depositing assets
+     * @param usr User to disallow
+     */
+    function disallowUser(address usr) external isAuthorized {
+        allowedUsers[usr] = 0;
+        emit DisallowUser(usr);
+    }
+    /**
+    * @notice Checks whether an address is an allowed user
+    **/
+    modifier isAllowed {
+        require(
+          either(restrictUsage == 0, both(restrictUsage == 1, allowedUsers[msg.sender] == 1)),
+          "NativeUnderlyingUniswapSafeSaviour/account-not-allowed"
+        );
+        _;
+    }
+
     // --- Structs ---
     struct Reserves {
         uint256 systemCoins;
@@ -54,6 +82,9 @@ contract NativeUnderlyingUniswapSafeSaviour is SafeMath, SafeSaviourLike {
     }
 
     // --- Variables ---
+    // Flag that tells whether usage of the contract is restricted to allowed users
+    uint256                        public restrictUsage;
+
     // Whether the system coin is token0 in the Uniswap pool or not
     bool                           public isSystemCoinToken0;
     // Amount of LP tokens currently protecting each position
@@ -80,6 +111,8 @@ contract NativeUnderlyingUniswapSafeSaviour is SafeMath, SafeSaviourLike {
     // --- Events ---
     event AddAuthorization(address account);
     event RemoveAuthorization(address account);
+    event AllowUser(address usr);
+    event DisallowUser(address usr);
     event ModifyParameters(bytes32 indexed parameter, uint256 val);
     event ModifyParameters(bytes32 indexed parameter, address data);
     event Deposit(
@@ -167,10 +200,13 @@ contract NativeUnderlyingUniswapSafeSaviour is SafeMath, SafeSaviourLike {
      * @param val New value for the parameter
      */
     function modifyParameters(bytes32 parameter, uint256 val) external isAuthorized {
-        require(val > 0, "NativeUnderlyingUniswapSafeSaviour/null-value");
-
         if (parameter == "minKeeperPayoutValue") {
+            require(val > 0, "NativeUnderlyingUniswapSafeSaviour/null-min-payout");
             minKeeperPayoutValue = val;
+        }
+        else if (parameter == "restrictUsage") {
+            require(val <= 1, "NativeUnderlyingUniswapSafeSaviour/invalid-restriction");
+            restrictUsage = val;
         }
         else revert("NativeUnderlyingUniswapSafeSaviour/modify-unrecognized-param");
     }
@@ -204,20 +240,21 @@ contract NativeUnderlyingUniswapSafeSaviour is SafeMath, SafeSaviourLike {
     */
     function getReserves(uint256 safeID) external controlsSAFE(msg.sender, safeID) nonReentrant {
         address safeHandler = safeManager.safes(safeID);
-        Reserves memory reserves = underlyingReserves[safeHandler];
+        (uint256 systemCoins, uint256 collateralCoins) =
+          (underlyingReserves[safeHandler].systemCoins, underlyingReserves[safeHandler].collateralCoins);
 
-        require(either(reserves.systemCoins > 0, reserves.collateralCoins > 0), "NativeUnderlyingUniswapSafeSaviour/no-reserves");
+        require(either(systemCoins > 0, collateralCoins > 0), "NativeUnderlyingUniswapSafeSaviour/no-reserves");
         delete(underlyingReserves[safeManager.safes(safeID)]);
 
-        if (reserves.systemCoins > 0) {
-          systemCoin.transfer(msg.sender, reserves.systemCoins);
+        if (systemCoins > 0) {
+          systemCoin.transfer(msg.sender, systemCoins);
         }
 
-        if (reserves.collateralCoins > 0) {
-          collateralToken.transfer(msg.sender, reserves.collateralCoins);
+        if (collateralCoins > 0) {
+          collateralToken.transfer(msg.sender, collateralCoins);
         }
 
-        emit GetReserves(msg.sender, safeHandler, reserves.systemCoins, reserves.collateralCoins);
+        emit GetReserves(msg.sender, safeHandler, systemCoins, collateralCoins);
     }
 
     // --- Adding/Withdrawing Cover ---
@@ -226,7 +263,7 @@ contract NativeUnderlyingUniswapSafeSaviour is SafeMath, SafeSaviourLike {
     * @param safeID The ID of the SAFE to protect. This ID should be registered inside GebSafeManager
     * @param lpTokenAmount The amount of collateralToken to deposit
     */
-    function deposit(uint256 safeID, uint256 lpTokenAmount) external liquidationEngineApproved(address(this)) nonReentrant {
+    function deposit(uint256 safeID, uint256 lpTokenAmount) external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
         require(lpTokenAmount > 0, "NativeUnderlyingUniswapSafeSaviour/null-lp-amount");
 
         // Check that the SAFE exists inside GebSafeManager

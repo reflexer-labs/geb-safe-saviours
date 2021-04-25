@@ -47,7 +47,38 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         _;
     }
 
+    mapping (address => uint256) public allowedUsers;
+    /**
+     * @notice Allow a user to deposit assets
+     * @param usr User to whitelist
+     */
+    function allowUser(address usr) external isAuthorized {
+        allowedUsers[usr] = 1;
+        emit AllowUser(usr);
+    }
+    /**
+     * @notice Disallow a user from depositing assets
+     * @param usr User to disallow
+     */
+    function disallowUser(address usr) external isAuthorized {
+        allowedUsers[usr] = 0;
+        emit DisallowUser(usr);
+    }
+    /**
+    * @notice Checks whether an address is an allowed user
+    **/
+    modifier isAllowed {
+        require(
+          either(restrictUsage == 0, both(restrictUsage == 1, allowedUsers[msg.sender] == 1)),
+          "CompoundSystemCoinSafeSaviour/account-not-allowed"
+        );
+        _;
+    }
+
     // --- Variables ---
+    // Flag that tells whether usage of the contract is restricted to allowed users
+    uint256                     public restrictUsage;
+
     // Amount of cTokens currently protecting each position
     mapping(bytes32 => mapping(address => uint256)) public cTokenCover;
     // The cToken address
@@ -64,6 +95,8 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     // --- Events ---
     event AddAuthorization(address account);
     event RemoveAuthorization(address account);
+    event AllowUser(address usr);
+    event DisallowUser(address usr);
     event ModifyParameters(bytes32 indexed parameter, uint256 val);
     event ModifyParameters(bytes32 indexed parameter, address data);
     event Deposit(
@@ -142,13 +175,17 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
      * @param val New value for the parameter
      */
     function modifyParameters(bytes32 parameter, uint256 val) external isAuthorized {
-        require(val > 0, "CompoundSystemCoinSafeSaviour/null-value");
-
         if (parameter == "keeperPayout") {
+            require(val > 0, "CompoundSystemCoinSafeSaviour/null-payout");
             keeperPayout = val;
         }
         else if (parameter == "minKeeperPayoutValue") {
+            require(val > 0, "CompoundSystemCoinSafeSaviour/null-min-payout");
             minKeeperPayoutValue = val;
+        }
+        else if (parameter == "restrictUsage") {
+            require(val <= 1, "CompoundSystemCoinSafeSaviour/invalid-restriction");
+            restrictUsage = val;
         }
         else revert("CompoundSystemCoinSafeSaviour/modify-unrecognized-param");
     }
@@ -181,7 +218,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     * @param systemCoinAmount The amount of system coins to deposit
     */
     function deposit(bytes32 collateralType, uint256 safeID, uint256 systemCoinAmount)
-      external liquidationEngineApproved(address(this)) nonReentrant {
+      external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
         uint256 defaultCRatio = cRatioSetter.defaultDesiredCollateralizationRatios(collateralType);
         require(systemCoinAmount > 0, "CompoundSystemCoinSafeSaviour/null-system-coin-amount");
         require(defaultCRatio > 0, "CompoundSystemCoinSafeSaviour/collateral-not-set");

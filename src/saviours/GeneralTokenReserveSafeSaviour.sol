@@ -46,7 +46,38 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
         _;
     }
 
+    mapping (address => uint256) public allowedUsers;
+    /**
+     * @notice Allow a user to deposit assets
+     * @param usr User to whitelist
+     */
+    function allowUser(address usr) external isAuthorized {
+        allowedUsers[usr] = 1;
+        emit AllowUser(usr);
+    }
+    /**
+     * @notice Disallow a user from depositing assets
+     * @param usr User to disallow
+     */
+    function disallowUser(address usr) external isAuthorized {
+        allowedUsers[usr] = 0;
+        emit DisallowUser(usr);
+    }
+    /**
+    * @notice Checks whether an address is an allowed user
+    **/
+    modifier isAllowed {
+        require(
+          either(restrictUsage == 0, both(restrictUsage == 1, allowedUsers[msg.sender] == 1)),
+          "GeneralTokenReserveSafeSaviour/account-not-allowed"
+        );
+        _;
+    }
+
     // --- Variables ---
+    // Flag that tells whether usage of the contract is restricted to allowed users
+    uint256                     public restrictUsage;
+
     // Amount of collateral deposited to cover each SAFE
     mapping(address => uint256) public collateralTokenCover;
     // The collateral join contract for adding collateral in the system
@@ -59,6 +90,8 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
     // --- Events ---
     event AddAuthorization(address account);
     event RemoveAuthorization(address account);
+    event AllowUser(address usr);
+    event DisallowUser(address usr);
     event ModifyParameters(bytes32 indexed parameter, address data);
     event Deposit(address indexed caller, address indexed safeHandler, uint256 amount);
     event Withdraw(address indexed caller, address indexed safeHandler, uint256 amount);
@@ -113,13 +146,17 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
      * @param val New value for the parameter
      */
     function modifyParameters(bytes32 parameter, uint256 val) external isAuthorized {
-        require(val > 0, "GeneralTokenReserveSafeSaviour/null-value");
-
         if (parameter == "keeperPayout") {
+            require(val > 0, "GeneralTokenReserveSafeSaviour/null-payout");
             keeperPayout = val;
         }
         else if (parameter == "minKeeperPayoutValue") {
+            require(val > 0, "GeneralTokenReserveSafeSaviour/null-min-payout");
             minKeeperPayoutValue = val;
+        }
+        else if (parameter == "restrictUsage") {
+            require(val <= 1, "GeneralTokenReserveSafeSaviour/invalid-restriction");
+            restrictUsage = val;
         }
         else revert("GeneralTokenReserveSafeSaviour/modify-unrecognized-param");
     }
@@ -144,7 +181,7 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
     * @param safeID The ID of the SAFE to protect. This ID should be registered inside GebSafeManager
     * @param collateralTokenAmount The amount of collateralToken to deposit
     */
-    function deposit(uint256 safeID, uint256 collateralTokenAmount) external liquidationEngineApproved(address(this)) nonReentrant {
+    function deposit(uint256 safeID, uint256 collateralTokenAmount) external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
         require(collateralTokenAmount > 0, "GeneralTokenReserveSafeSaviour/null-collateralToken-amount");
 
         // Check that the SAFE exists inside GebSafeManager
