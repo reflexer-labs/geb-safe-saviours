@@ -231,7 +231,7 @@ contract NativeUnderlyingUniswapSafeSaviour is SafeMath, SafeSaviourLike {
         else revert("NativeUnderlyingUniswapSafeSaviour/modify-unrecognized-param");
     }
 
-    // --- Transferring Funds ---
+    // --- Transferring Reserves ---
     /*
     * @notify Get back system coins or collateral tokens that were withdrawn from Uniswap and not used to save a specific SAFE
     * @param safeID The ID of the safe that was previously saved and has leftover funds that can be withdrawn
@@ -284,8 +284,9 @@ contract NativeUnderlyingUniswapSafeSaviour is SafeMath, SafeSaviourLike {
     * @dev Only an address that controls the SAFE inside the SAFE Manager can call this
     * @param safeID The ID of the SAFE to remove cover from. This ID should be registered inside the SAFE Manager
     * @param lpTokenAmount The amount of lpToken to withdraw
+    * @param dst The address that will receive the LP tokens
     */
-    function withdraw(uint256 safeID, uint256 lpTokenAmount) external controlsSAFE(msg.sender, safeID) nonReentrant {
+    function withdraw(uint256 safeID, uint256 lpTokenAmount, address dst) external controlsSAFE(msg.sender, safeID) nonReentrant {
         require(lpTokenAmount > 0, "NativeUnderlyingUniswapSafeSaviour/null-lp-amount");
 
         // Fetch the handler from the SAFE manager
@@ -294,7 +295,7 @@ contract NativeUnderlyingUniswapSafeSaviour is SafeMath, SafeSaviourLike {
 
         // Withdraw cover and transfer collateralToken to the caller
         lpTokenCover[safeHandler] = sub(lpTokenCover[safeHandler], lpTokenAmount);
-        lpToken.transfer(msg.sender, lpTokenAmount);
+        lpToken.transfer(dst, lpTokenAmount);
 
         emit Withdraw(msg.sender, safeHandler, lpTokenAmount);
     }

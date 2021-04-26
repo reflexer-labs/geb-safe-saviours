@@ -175,9 +175,10 @@ contract FakeUser {
     function doWithdraw(
         NativeUnderlyingUniswapSafeSaviour saviour,
         uint256 safeID,
-        uint256 lpTokenAmount
+        uint256 lpTokenAmount,
+        address dst
     ) public {
-        saviour.withdraw(safeID, lpTokenAmount);
+        saviour.withdraw(safeID, lpTokenAmount, dst);
     }
 
     function doGetReserves(
@@ -563,7 +564,7 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
 
         return safeHandler;
     }
-    function default_create_position_deposit_cover() internal returns (uint, address, uint) {
+    function default_create_position_deposit_cover() internal returns (uint, address) {
         uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
         address safeHandler = safeManager.safes(safe);
         default_modify_collateralization(safe, safeHandler);
@@ -580,7 +581,7 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         assertEq(raiWETHPair.balanceOf(address(saviour)), lpTokenAmount);
         assertEq(saviour.lpTokenCover(safeHandler), lpTokenAmount);
 
-        return (safe, safeHandler, lpTokenAmount);
+        return (safe, safeHandler);
     }
     function default_modify_collateralization(uint256 safe, address safeHandler) internal {
         weth.approve(address(collateralJoin), uint(-1));
@@ -608,5 +609,168 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         assertEq(address(saviour.liquidityManager()), address(liquidityManager));
         assertEq(address(saviour.lpToken()), address(raiWETHPair));
         assertEq(address(saviour.collateralToken()), address(weth));
+    }
+    function test_modify_uints() public {
+        saviour.modifyParameters("minKeeperPayoutValue", 5);
+        saviour.modifyParameters("restrictUsage", 1);
+
+        assertEq(saviour.minKeeperPayoutValue(), 5);
+        assertEq(saviour.restrictUsage(), 1);
+    }
+    function testFail_modify_uint_unauthed() public {
+        alice.doModifyParameters(saviour, "minKeeperPayoutValue", 5);
+    }
+    function test_modify_addresses() public {
+        saviour.modifyParameters("systemCoinOrcl", address(systemCoinOracle));
+        saviour.modifyParameters("oracleRelayer", address(oracleRelayer));
+        saviour.modifyParameters("liquidityManager", address(liquidityManager));
+
+        assertEq(address(saviour.liquidityManager()), address(liquidityManager));
+        assertEq(address(saviour.oracleRelayer()), address(oracleRelayer));
+        assertEq(address(saviour.systemCoinOrcl()), address(systemCoinOracle));
+    }
+    function testFail_modify_address_unauthed() public {
+        alice.doModifyParameters(saviour, "systemCoinOrcl", address(systemCoinOracle));
+    }
+    function testFail_deposit_liq_engine_not_approved() public {
+        liquidationEngine.disconnectSAFESaviour(address(saviour));
+
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        addPairLiquidityRouter(
+          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+        );
+        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
+        raiWETHPair.transfer(address(alice), lpTokenAmount);
+
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), 1, lpTokenAmount);
+    }
+    function testFail_deposit_null_lp_token_amount() public {
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        addPairLiquidityRouter(
+          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+        );
+        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
+        raiWETHPair.transfer(address(alice), lpTokenAmount);
+
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), 1, 0);
+    }
+    function testFail_deposit_inexistent_safe() public {
+        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        addPairLiquidityRouter(
+          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+        );
+        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
+        raiWETHPair.transfer(address(alice), lpTokenAmount);
+
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), 1, 0);
+    }
+    function test_deposit_twice() public {
+        uint256 initialLPSupply = raiWETHPair.totalSupply();
+
+        (uint safe, address safeHandler) = default_create_position_deposit_cover();
+
+        // Second deposit
+        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        addPairLiquidityRouter(
+          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+        );
+        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
+        raiWETHPair.transfer(address(alice), lpTokenAmount);
+
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
+
+        // Checks
+        assertTrue(raiWETHPair.balanceOf(address(saviour)) > 0 && saviour.lpTokenCover(safeHandler) > 0);
+        assertEq(saviour.lpTokenCover(safeHandler), raiWETHPair.totalSupply() - initialLPSupply);
+        assertEq(raiWETHPair.balanceOf(address(saviour)), raiWETHPair.totalSupply() - initialLPSupply);
+    }
+    function test_deposit_after_everything_withdrawn() public {
+        (uint safe, address safeHandler) = default_create_position_deposit_cover();
+
+        // Withdraw
+        uint256 currentLPBalanceAlice   = raiWETHPair.balanceOf(address(alice));
+        uint256 currentLPBalanceSaviour = raiWETHPair.balanceOf(address(saviour));
+        alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler), address(alice));
+
+        // Checks
+        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour);
+        assertTrue(raiWETHPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
+
+        // Deposit again
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, currentLPBalanceSaviour);
+
+        // Checks
+        assertTrue(raiWETHPair.balanceOf(address(saviour)) > 0 && saviour.lpTokenCover(safeHandler) > 0);
+        assertEq(saviour.lpTokenCover(safeHandler), currentLPBalanceSaviour);
+        assertEq(raiWETHPair.balanceOf(address(saviour)), currentLPBalanceSaviour);
+        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice);
+    }
+    function testFail_withdraw_unauthorized() public {
+        (uint safe, ) = default_create_position_deposit_cover();
+
+        // Withdraw by unauthed
+        FakeUser bob = new FakeUser();
+        bob.doWithdraw(saviour, safe, raiWETHPair.balanceOf(address(saviour)), address(bob));
+    }
+    function testFail_withdraw_more_than_deposited() public {
+        (uint safe, address safeHandler) = default_create_position_deposit_cover();
+        uint256 currentLPBalance = raiWETHPair.balanceOf(address(this));
+        alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler) + 1, address(this));
+    }
+    function testFail_withdraw_null() public {
+        (uint safe, address safeHandler) = default_create_position_deposit_cover();
+        alice.doWithdraw(saviour, safe, 0, address(this));
+    }
+    function test_withdraw() public {
+        (uint safe, address safeHandler) = default_create_position_deposit_cover();
+
+        // Withdraw
+        uint256 currentLPBalanceAlice   = raiWETHPair.balanceOf(address(alice));
+        uint256 currentLPBalanceSaviour = raiWETHPair.balanceOf(address(saviour));
+        alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler), address(alice));
+
+        // Checks
+        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour);
+        assertTrue(raiWETHPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
+    }
+    function test_withdraw_twice() public {
+        (uint safe, address safeHandler) = default_create_position_deposit_cover();
+
+        // Withdraw once
+        uint256 currentLPBalanceAlice   = raiWETHPair.balanceOf(address(alice));
+        uint256 currentLPBalanceSaviour = raiWETHPair.balanceOf(address(saviour));
+        alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler) / 2, address(alice));
+
+        // Checks
+        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour / 2);
+        assertTrue(raiWETHPair.balanceOf(address(saviour)) == currentLPBalanceSaviour / 2 && saviour.lpTokenCover(safeHandler) == currentLPBalanceSaviour / 2);
+
+        // Withdraw again
+        alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler), address(alice));
+
+        // Checks
+        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour);
+        assertTrue(raiWETHPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
+    }
+    function test_withdraw_custom_dst() public {
+        (uint safe, address safeHandler) = default_create_position_deposit_cover();
+
+        // Withdraw
+        uint256 currentLPBalanceAlice   = raiWETHPair.balanceOf(address(0xb1));
+        uint256 currentLPBalanceSaviour = raiWETHPair.balanceOf(address(saviour));
+        alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler), address(0xb1));
+
+        // Checks
+        assertEq(raiWETHPair.balanceOf(address(0xb1)), currentLPBalanceSaviour);
+        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice);
+        assertTrue(raiWETHPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
     }
 }
