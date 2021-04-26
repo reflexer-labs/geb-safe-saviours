@@ -59,7 +59,7 @@ contract UniswapV2LiquidityManager is UniswapLiquidityManagerLike, SafeMath {
     * @return The amount of LP tokens needed to withdraw a specific amount of token0 tokens
     */
     function getLiquidityFromToken0(uint256 token0Amount) public override view returns (uint256) {
-        if (token0Amount == 0) return 0;
+        if (either(token0Amount == 0, ERC20Like(address(pair.token0())).balanceOf(address(pair)) < token0Amount)) return 0;
         return div(mul(token0Amount, pair.totalSupply()), ERC20Like(pair.token0()).balanceOf(address(pair)));
     }
     /*
@@ -68,7 +68,7 @@ contract UniswapV2LiquidityManager is UniswapLiquidityManagerLike, SafeMath {
     * @return The amount of LP tokens needed to withdraw a specific amount of token1 tokens
     */
     function getLiquidityFromToken1(uint256 token1Amount) public override view returns (uint256) {
-        if (token1Amount == 0) return 0;
+        if (either(token1Amount == 0, ERC20Like(address(pair.token1())).balanceOf(address(pair)) < token1Amount)) return 0;
         return div(mul(token1Amount, pair.totalSupply()), ERC20Like(pair.token1()).balanceOf(address(pair)));
     }
 
@@ -99,6 +99,7 @@ contract UniswapV2LiquidityManager is UniswapLiquidityManagerLike, SafeMath {
         uint128 amount1Min,
         address to
     ) public override returns (uint256 amount0, uint256 amount1) {
+        require(to != address(0), "UniswapV2LiquidityManager/null-dst");
         pair.transferFrom(msg.sender, address(this), liquidity);
         pair.approve(address(router), liquidity);
         (amount0, amount1) = router.removeLiquidity(

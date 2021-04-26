@@ -210,7 +210,6 @@ contract FakeUser {
     }
 
     function doSetDesiredCollateralizationRatio(
-        CompoundSystemCoinSafeSaviour saviour,
         SaviourCRatioSetter cRatioSetter,
         bytes32 collateralType,
         uint safe,
@@ -430,7 +429,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         default_modify_collateralization(safe, safeHandler);
 
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, desiredCRatio);
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "gold", safe, desiredCRatio);
         assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
 
         goldMedian.updateCollateralPrice(liquidatableCollateralPrice);
@@ -444,7 +443,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
 
         alice.doTransferInternalCoins(safeManager, safe, address(coinJoin), safeEngine.coinBalance(safeHandler));
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, desiredCRatio);
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "gold", safe, desiredCRatio);
         assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
 
         goldMedian.updateCollateralPrice(3 ether);
@@ -475,7 +474,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         assertEq(lockedCollateral * 3E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), desiredCRatio);
     }
     function default_second_save(uint256 safe, address safeHandler, uint desiredCRatio) internal {
-        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, desiredCRatio);
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "gold", safe, desiredCRatio);
 
         goldMedian.updateCollateralPrice(2.5 ether);
         goldFSM.updateCollateralPrice(2.5 ether);
@@ -527,7 +526,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         default_modify_collateralization(safe, safeHandler);
 
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, desiredCRatio);
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "gold", safe, desiredCRatio);
         assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
 
         goldMedian.updateCollateralPrice(liquidatableCollateralPrice);
@@ -831,7 +830,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
 
         alice.doTransferInternalCoins(safeManager, safe, address(coinJoin), safeEngine.coinBalance(safeHandler));
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, 200);
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "gold", safe, 200);
 
         goldMedian.updateCollateralPrice(3 ether);
         goldFSM.updateCollateralPrice(3 ether);
@@ -857,7 +856,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
 
         alice.doTransferInternalCoins(safeManager, safe, address(coinJoin), safeEngine.coinBalance(safeHandler));
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, 155);
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "gold", safe, 155);
         assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
 
         safeEngine.mint(safeHandler, rad(defaultTokenAmount));
@@ -876,7 +875,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
 
         alice.doTransferInternalCoins(safeManager, safe, address(coinJoin), safeEngine.coinBalance(safeHandler));
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, 900);
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "gold", safe, 900);
         assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
 
         safeEngine.mint(safeHandler, rad(defaultTokenAmount));

@@ -73,6 +73,7 @@ contract UniswapV3LiquidityManager is UniswapLiquidityManagerLike, SafeMath {
         uint128 amount1Min,
         address to
     ) public override returns (uint256 amount0, uint256 amount1) {
+        require(to != address(0), "UniswapV3LiquidityManager/null-dst");
         gebLiquidityManager.transferFrom(msg.sender, address(this), liquidity);
         (amount0, amount1) = gebLiquidityManager.withdraw(
           liquidity,
