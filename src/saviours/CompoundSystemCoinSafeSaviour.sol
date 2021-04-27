@@ -110,6 +110,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
       address indexed caller,
       bytes32 collateralType,
       address indexed safeHandler,
+      address dst,
       uint256 systemCoinAmount,
       uint256 cTokenAmount
     );
@@ -164,6 +165,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         emit AddAuthorization(msg.sender);
         emit ModifyParameters("keeperPayout", keeperPayout);
         emit ModifyParameters("minKeeperPayoutValue", minKeeperPayoutValue);
+        emit ModifyParameters("liquidationEngine", liquidationEngine_);
         emit ModifyParameters("oracleRelayer", oracleRelayer_);
         emit ModifyParameters("systemCoinOrcl", systemCoinOrcl_);
     }
@@ -188,6 +190,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
             restrictUsage = val;
         }
         else revert("CompoundSystemCoinSafeSaviour/modify-unrecognized-param");
+        emit ModifyParameters(parameter, val);
     }
     /**
      * @notice Modify an address param
@@ -206,7 +209,11 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
             oracleRelayer = OracleRelayerLike(data);
             oracleRelayer.redemptionPrice();
         }
+        else if (parameter == "liquidationEngine") {
+            liquidationEngine = LiquidationEngineLike(data);
+        }
         else revert("CompoundSystemCoinSafeSaviour/modify-unrecognized-param");
+        emit ModifyParameters(parameter, data);
     }
 
     // --- Adding/Withdrawing Cover ---
@@ -249,8 +256,9 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     * @dev Only an address that controls the SAFE inside GebSafeManager can call this
     * @param safeID The ID of the SAFE to remove cover from. This ID should be registered inside GebSafeManager
     * @param cTokenAmount The amount of cTokens to use and redeem system coins from Compound
+    * @param dst The address that will receive the withdrawn system coins
     */
-    function withdraw(bytes32 collateralType, uint256 safeID, uint256 cTokenAmount)
+    function withdraw(bytes32 collateralType, uint256 safeID, uint256 cTokenAmount, address dst)
       external controlsSAFE(msg.sender, safeID) nonReentrant {
         require(cTokenAmount > 0, "CompoundSystemCoinSafeSaviour/null-cToken-amount");
 
@@ -264,12 +272,13 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         require(cToken.redeem(cTokenAmount) == 0, "CompoundSystemCoinSafeSaviour/cannot-redeem-ctoken");
 
         uint256 amountTransferred = sub(systemCoin.balanceOf(address(this)), currentSystemCoinAmount);
-        systemCoin.transfer(msg.sender, amountTransferred);
+        systemCoin.transfer(dst, amountTransferred);
 
         emit Withdraw(
           msg.sender,
           collateralType,
           safeHandler,
+          dst,
           amountTransferred,
           cTokenAmount
         );
@@ -407,8 +416,8 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
           defaultCRatio : cRatioSetter.desiredCollateralizationRatios(collateralType, safeHandler);
 
         uint256 targetDebtAmount = mul(
-          mul(HUNDRED, mul(depositedCollateralToken, priceFeedValue) / WAD) / targetCRatio, oracleRelayer.redemptionPrice()
-        ) / RAY;
+          mul(HUNDRED, mul(depositedCollateralToken, priceFeedValue) / WAD) / targetCRatio, RAY
+        ) / oracleRelayer.redemptionPrice();
 
         // If you need to repay more than the amount of debt in the SAFE (or all the debt), return 0
         if (targetDebtAmount >= safeDebt) {

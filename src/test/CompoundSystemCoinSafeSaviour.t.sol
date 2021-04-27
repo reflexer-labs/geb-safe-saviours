@@ -195,9 +195,10 @@ contract FakeUser {
         CompoundSystemCoinSafeSaviour saviour,
         bytes32 collateralType,
         uint256 safeID,
-        uint256 cTokenAmount
+        uint256 cTokenAmount,
+        address dst
     ) public {
-        saviour.withdraw(collateralType, safeID, cTokenAmount);
+        saviour.withdraw(collateralType, safeID, cTokenAmount, dst);
     }
 
     function doTransferInternalCoins(
@@ -653,7 +654,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         (uint safe, address safeHandler, uint totalSupply) = default_create_position_deposit_cover();
 
         // Withdraw
-        alice.doWithdraw(saviour, "gold", safe, totalSupply);
+        alice.doWithdraw(saviour, "gold", safe, totalSupply, address(alice));
 
         totalSupply = cRAI.totalSupply();
         assertTrue(totalSupply == 0);
@@ -675,25 +676,25 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
 
         // Withdraw by unauthed
         FakeUser bob = new FakeUser();
-        bob.doWithdraw(saviour, "gold", safe, defaultTokenAmount);
+        bob.doWithdraw(saviour, "gold", safe, defaultTokenAmount, address(this));
     }
     function testFail_withdraw_more_than_deposited() public {
         (uint safe, , uint totalSupply) = default_create_position_deposit_cover();
 
         // Withdraw
-        alice.doWithdraw(saviour, "gold", safe, totalSupply + 1);
+        alice.doWithdraw(saviour, "gold", safe, totalSupply + 1, address(this));
     }
     function testFail_withdraw_null() public {
         (uint safe, , ) = default_create_position_deposit_cover();
 
         // Withdraw
-        alice.doWithdraw(saviour, "gold", safe, 0);
+        alice.doWithdraw(saviour, "gold", safe, 0, address(this));
     }
     function test_withdraw() public {
         (uint safe, address safeHandler, uint totalSupply) = default_create_position_deposit_cover();
 
         // Withdraw
-        alice.doWithdraw(saviour, "gold", safe, totalSupply);
+        alice.doWithdraw(saviour, "gold", safe, totalSupply, address(this));
 
         totalSupply = cRAI.totalSupply();
         assertTrue(totalSupply == 0);
@@ -705,7 +706,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         (uint safe, address safeHandler, uint totalSupply) = default_create_position_deposit_cover();
 
         // Withdraw first time
-        alice.doWithdraw(saviour, "gold", safe, totalSupply / 2);
+        alice.doWithdraw(saviour, "gold", safe, totalSupply / 2, address(this));
 
         assertTrue(totalSupply > 0);
         assertEq(cRAI.balanceOf(address(saviour)), totalSupply / 2);
@@ -713,7 +714,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         assertEq(saviour.cTokenCover("gold", safeHandler), totalSupply / 2);
 
         // Withdraw second time
-        alice.doWithdraw(saviour, "gold", safe, totalSupply / 2);
+        alice.doWithdraw(saviour, "gold", safe, totalSupply / 2, address(this));
 
         totalSupply = cRAI.totalSupply();
         assertTrue(totalSupply == 0);
@@ -776,16 +777,6 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
 
         assertEq(saviour.tokenAmountUsedToSave("gold", safeHandler), 90 ether);
     }
-    function test_tokenAmountUsedToSave_tiny_redemption_price() public {
-        oracleRelayer.modifyParameters("redemptionPrice", ray(0.000001 ether));
-        address safeHandler = default_create_liquidatable_position(400, 1 ether);
-
-        safeEngine.mint(safeHandler, rad(defaultTokenAmount));
-        systemCoin.mint(address(alice), defaultTokenAmount);
-        alice.doDeposit(saviour, systemCoin, "gold", 1, defaultTokenAmount);
-
-        assertEq(saviour.tokenAmountUsedToSave("gold", safeHandler), 99.99999 ether);
-    }
     function test_canSave_invalid_collateral_price() public {
         address safeHandler = default_create_liquidatable_position_deposit_cover(250, 1 ether);
         goldFSM.changeValidity();
@@ -808,17 +799,6 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
     }
     function test_canSave() public {
         address safeHandler = default_create_liquidatable_position_deposit_cover(250, 1 ether);
-        assertTrue(saviour.canSave("gold", safeHandler));
-    }
-    function test_canSave_tiny_redemption_price() public {
-        oracleRelayer.modifyParameters("redemptionPrice", ray(0.000001 ether));
-        address safeHandler = default_create_liquidatable_position_deposit_cover(250, 1 ether);
-
-        // Deposit even more cover
-        safeEngine.mint(safeHandler, rad(defaultTokenAmount));
-        systemCoin.mint(address(alice), defaultTokenAmount);
-        alice.doDeposit(saviour, systemCoin, "gold", 1, defaultTokenAmount);
-
         assertTrue(saviour.canSave("gold", safeHandler));
     }
     function testFail_saveSAFE_invalid_caller() public {
@@ -904,7 +884,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         assertEq(saviourRegistry.lastSaveTime("gold", safeHandler), now);
 
         // Withdraw
-        alice.doWithdraw(saviour, "gold", safe, saviour.cTokenCover("gold", safeHandler));
+        alice.doWithdraw(saviour, "gold", safe, saviour.cTokenCover("gold", safeHandler), address(this));
 
         uint256 totalSupply = cRAI.totalSupply();
         assertTrue(totalSupply == 0);

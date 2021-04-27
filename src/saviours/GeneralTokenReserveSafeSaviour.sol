@@ -93,8 +93,9 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
     event AllowUser(address usr);
     event DisallowUser(address usr);
     event ModifyParameters(bytes32 indexed parameter, address data);
+    event ModifyParameters(bytes32 indexed parameter, uint256 data);
     event Deposit(address indexed caller, address indexed safeHandler, uint256 amount);
-    event Withdraw(address indexed caller, address indexed safeHandler, uint256 amount);
+    event Withdraw(address indexed caller, address indexed safeHandler, address dst, uint256 amount);
 
     constructor(
       address cRatioSetter_,
@@ -159,6 +160,7 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
             restrictUsage = val;
         }
         else revert("GeneralTokenReserveSafeSaviour/modify-unrecognized-param");
+        emit ModifyParameters(parameter, val);
     }
     /**
      * @notice Modify an address param
@@ -172,7 +174,11 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
             oracleRelayer = OracleRelayerLike(data);
             oracleRelayer.redemptionPrice();
         }
+        else if (parameter == "liquidationEngine") {
+            liquidationEngine = LiquidationEngineLike(data);
+        }
         else revert("GeneralTokenReserveSafeSaviour/modify-unrecognized-param");
+        emit ModifyParameters(parameter, data);
     }
 
     // --- Adding/Withdrawing Cover ---
@@ -204,8 +210,9 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
     * @dev Only an address that controls the SAFE inside GebSafeManager can call this
     * @param safeID The ID of the SAFE to remove cover from. This ID should be registered inside GebSafeManager
     * @param collateralTokenAmount The amount of collateralToken to withdraw
+    * @param dst The address that will receive the withdrawn tokens
     */
-    function withdraw(uint256 safeID, uint256 collateralTokenAmount) external controlsSAFE(msg.sender, safeID) nonReentrant {
+    function withdraw(uint256 safeID, uint256 collateralTokenAmount, address dst) external controlsSAFE(msg.sender, safeID) nonReentrant {
         require(collateralTokenAmount > 0, "GeneralTokenReserveSafeSaviour/null-collateralToken-amount");
 
         // Fetch the handler from the SAFE manager
@@ -214,9 +221,9 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
 
         // Withdraw cover and transfer collateralToken to the caller
         collateralTokenCover[safeHandler] = sub(collateralTokenCover[safeHandler], collateralTokenAmount);
-        collateralToken.transfer(msg.sender, collateralTokenAmount);
+        collateralToken.transfer(dst, collateralTokenAmount);
 
-        emit Withdraw(msg.sender, safeHandler, collateralTokenAmount);
+        emit Withdraw(msg.sender, safeHandler, dst, collateralTokenAmount);
     }
 
     // --- Saving Logic ---

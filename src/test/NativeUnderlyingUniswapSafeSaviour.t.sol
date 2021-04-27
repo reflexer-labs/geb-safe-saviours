@@ -183,9 +183,10 @@ contract FakeUser {
 
     function doGetReserves(
         NativeUnderlyingUniswapSafeSaviour saviour,
-        uint256 safeID
+        uint256 safeID,
+        address dst
     ) public {
-        saviour.getReserves(safeID);
+        saviour.getReserves(safeID, dst);
     }
 
     function doTransferInternalCoins(
@@ -435,8 +436,8 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         alice.doSetDesiredCollateralizationRatio(cRatioSetter, "eth", safe, desiredCRatio);
         assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
 
-        ethMedian.updateCollateralPrice(initETHUSDPrice * 10 / 15);
-        ethFSM.updateCollateralPrice(initETHUSDPrice * 10 / 15);
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 30);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 30);
         oracleRelayer.updateCollateralPrice("eth");
 
         uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
@@ -450,11 +451,12 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         assertEq(raiWETHPair.balanceOf(address(saviour)), lpTokenAmount);
         assertTrue(saviour.canSave("eth", safeHandler));
 
-        liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(111 ether));
+        liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
         liquidationEngine.modifyParameters("eth", "liquidationPenalty", 1.1 ether);
 
         uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
         uint256 preSaveWETHKeeperBalance = weth.balanceOf(address(this));
+
         uint auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
         (uint256 sysCoinReserve, uint256 collateralReserve) = saviour.underlyingReserves(safeHandler);
 
@@ -467,20 +469,18 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
           systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
           weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
         );
-        assertEq(systemCoin.balanceOf(address(this)), 0);
-        assertEq(weth.balanceOf(address(this)), 0);
         assertTrue(raiWETHPair.balanceOf(address(saviour)) < lpTokenAmount);
         assertEq(raiWETHPair.balanceOf(address(liquidityManager)), 0);
         assertEq(saviour.lpTokenCover(safeHandler), 0);
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
-        assertEq(lockedCollateral * (initETHUSDPrice * 10 / 15) * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), desiredCRatio);
+        assertEq(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), desiredCRatio);
     }
     function default_second_save(uint256 safe, address safeHandler, uint desiredCRatio) internal {
         alice.doSetDesiredCollateralizationRatio(cRatioSetter, "eth", safe, desiredCRatio);
 
-        ethMedian.updateCollateralPrice(initETHUSDPrice / 3);
-        ethFSM.updateCollateralPrice(initETHUSDPrice / 3);
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 40);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 40);
         oracleRelayer.updateCollateralPrice("eth");
 
         uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
@@ -499,33 +499,28 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
 
         uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
         uint256 preSaveWETHKeeperBalance = weth.balanceOf(address(this));
+        (uint256 oldSysCoinReserve, uint256 oldCollateralReserve) = saviour.underlyingReserves(safeHandler);
         uint auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
         (uint256 sysCoinReserve, uint256 collateralReserve) = saviour.underlyingReserves(safeHandler);
 
         assertEq(auction, 0);
         assertTrue(
-          sysCoinReserve > 0 ||
-          collateralReserve > 0
+          sysCoinReserve > oldSysCoinReserve ||
+          collateralReserve > oldCollateralReserve
         );
         assertTrue(
           systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
           weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
         );
-        assertEq(systemCoin.balanceOf(address(this)), 0);
-        assertEq(weth.balanceOf(address(this)), 0);
         assertTrue(raiWETHPair.balanceOf(address(saviour)) < lpTokenAmount);
         assertEq(raiWETHPair.balanceOf(address(liquidityManager)), 0);
         assertEq(saviour.lpTokenCover(safeHandler), 0);
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
-        assertEq(lockedCollateral * (initETHUSDPrice / 3) * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), desiredCRatio);
+        assertEq(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), desiredCRatio);
     }
     function default_liquidate_safe(address safeHandler) internal {
-        ethMedian.updateCollateralPrice(initETHUSDPrice * 10 / 15);
-        ethFSM.updateCollateralPrice(initETHUSDPrice * 10 / 15);
-        oracleRelayer.updateCollateralPrice("eth");
-
-        liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(111 ether));
+        liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
         liquidationEngine.modifyParameters("eth", "liquidationPenalty", 1.1 ether);
 
         uint auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
@@ -534,13 +529,14 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         assertEq(lockedCollateral, 0);
         assertEq(generatedDebt, 0);
         // all debt goes to the accounting engine
-        assertEq(accountingEngine.totalQueuedDebt(), rad(defaultTokenAmount));
+        assertTrue(accountingEngine.totalQueuedDebt() > 0);
         // auction is for all collateral
         (,uint amountToSell,,,,,, uint256 amountToRaise) = collateralAuctionHouse.bids(auction);
         assertEq(amountToSell, defaultCollateralAmount);
-        assertEq(amountToRaise, rad(110 ether));
+        assertEq(amountToRaise, rad(1100 ether));
     }
-    function default_create_liquidatable_position_deposit_cover(uint256 desiredCRatio, uint256 liquidatableCollateralPrice) internal returns (address) {
+    function default_create_liquidatable_position_deposit_cover(uint256 desiredCRatio, uint256 liquidatableCollateralPrice)
+      internal returns (address) {
         // Create position
         uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
         address safeHandler = safeManager.safes(safe);
@@ -549,6 +545,11 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
         alice.doSetDesiredCollateralizationRatio(cRatioSetter, "eth", safe, desiredCRatio);
         assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+
+        // Change oracle price
+        ethMedian.updateCollateralPrice(liquidatableCollateralPrice);
+        ethFSM.updateCollateralPrice(liquidatableCollateralPrice);
+        oracleRelayer.updateCollateralPrice("eth");
 
         // Deposit cover
         uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
@@ -586,7 +587,7 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
     function default_modify_collateralization(uint256 safe, address safeHandler) internal {
         weth.approve(address(collateralJoin), uint(-1));
         collateralJoin.join(address(safeHandler), defaultTokenAmount);
-        alice.doModifySAFECollateralization(safeManager, safe, int(defaultCollateralAmount), int(defaultTokenAmount));
+        alice.doModifySAFECollateralization(safeManager, safe, int(defaultCollateralAmount), int(defaultTokenAmount * 10));
     }
 
     // --- Tests ---
@@ -670,7 +671,7 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
         raiWETHPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), 1, 0);
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), 1, lpTokenAmount);
     }
     function test_deposit_twice() public {
         uint256 initialLPSupply = raiWETHPair.totalSupply();
@@ -772,5 +773,449 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         assertEq(raiWETHPair.balanceOf(address(0xb1)), currentLPBalanceSaviour);
         assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice);
         assertTrue(raiWETHPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
+    }
+    function test_tokenAmountUsedToSave() public {
+        (uint safe, address safeHandler) = default_create_position_deposit_cover();
+
+        assertEq(saviour.lpTokenCover(safeHandler), saviour.tokenAmountUsedToSave("eth", safeHandler));
+    }
+    function test_getCollateralPrice_zero_price() public {
+        ethFSM.updateCollateralPrice(0);
+        assertEq(saviour.getCollateralPrice(), 0);
+    }
+    function test_getCollateralPrice_invalid() public {
+        ethFSM.changeValidity();
+        assertEq(saviour.getCollateralPrice(), 0);
+    }
+    function test_getCollateralPrice_null_fsm() public {
+        oracleRelayer.modifyParameters("eth", "orcl", address(0));
+        assertEq(saviour.getCollateralPrice(), 0);
+    }
+    function test_getCollateralPrice() public {
+        assertEq(saviour.getCollateralPrice(), initETHUSDPrice);
+    }
+    function test_getSystemCoinMarketPrice_invalid() public {
+        systemCoinOracle.changeValidity();
+        assertEq(saviour.getSystemCoinMarketPrice(), 0);
+    }
+    function test_getSystemCoinMarketPrice_null_price() public {
+        systemCoinOracle.updateCollateralPrice(0);
+        assertEq(saviour.getSystemCoinMarketPrice(), 0);
+    }
+    function test_getSystemCoinMarketPrice() public {
+        assertEq(saviour.getSystemCoinMarketPrice(), initRAIUSDPrice);
+    }
+    function test_getTargetCRatio_inexistent_handler() public {
+        assertEq(saviour.getTargetCRatio(address(0x1)), defaultDesiredCollateralizationRatio);
+    }
+    function test_getTargetCRatio_no_custom_desired_ratio() public {
+        (uint safe, address safeHandler) = default_create_position_deposit_cover();
+        assertEq(saviour.getTargetCRatio(safeHandler), defaultDesiredCollateralizationRatio);
+    }
+    function test_getTargetCRatio_custom_desired_ratio() public {
+        (uint safe, address safeHandler) = default_create_position_deposit_cover();
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "eth", safe, defaultDesiredCollateralizationRatio * 2);
+        assertEq(saviour.getTargetCRatio(safeHandler), defaultDesiredCollateralizationRatio * 2);
+    }
+    function test_getLPUnderlying_inexistent_handler() public {
+        (uint sysCoins, uint collateral) = saviour.getLPUnderlying(address(0x1));
+        assertEq(sysCoins, collateral);
+        assertEq(sysCoins, 0);
+    }
+    function test_getLPUnderlying() public {
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        addPairLiquidityRouter(
+          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+        );
+        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
+        raiWETHPair.transfer(address(alice), lpTokenAmount);
+
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
+
+        (uint sysCoins, uint collateral) = saviour.getLPUnderlying(safeHandler);
+        assertEq(sysCoins, initRAIETHPairLiquidity * defaultLiquidityMultiplier);
+        assertEq(collateral, initETHRAIPairLiquidity * defaultLiquidityMultiplier);
+    }
+    function test_getTokensForSaving_no_cover() public {
+        (uint sysCoins, uint collateral) = saviour.getTokensForSaving(address(0x1), oracleRelayer.redemptionPrice());
+
+        assertEq(sysCoins, collateral);
+        assertEq(sysCoins, 0);
+    }
+    function test_getTokensForSaving_null_redemption() public {
+        address safeHandler = default_create_liquidatable_position_deposit_cover(200, initETHUSDPrice / 30);
+        (uint sysCoins, uint collateral) = saviour.getTokensForSaving(safeHandler, 0);
+
+        assertEq(sysCoins, collateral);
+        assertEq(sysCoins, 0);
+    }
+    function test_getTokensForSaving_null_collateral_price() public {
+        address safeHandler = default_create_liquidatable_position_deposit_cover(200, initETHUSDPrice / 30);
+        ethFSM.updateCollateralPrice(0);
+        (uint sysCoins, uint collateral) = saviour.getTokensForSaving(safeHandler, oracleRelayer.redemptionPrice());
+
+        assertEq(sysCoins, collateral);
+        assertEq(sysCoins, 0);
+    }
+    function test_getTokensForSaving_save_only_with_sys_coins() public {
+        address safeHandler = default_create_liquidatable_position_deposit_cover(200, initETHUSDPrice / 30);
+        (uint sysCoins, uint collateral) = saviour.getTokensForSaving(safeHandler, oracleRelayer.redemptionPrice());
+
+        assertTrue(sysCoins > 0);
+        assertEq(collateral, 0);
+    }
+    function test_getTokensForSaving_both_tokens_used() public {
+        // Create position
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "eth", safe, 200);
+        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+
+        // Change oracle price
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 3);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 3);
+        oracleRelayer.updateCollateralPrice("eth");
+
+        // Deposit cover
+        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        addPairLiquidityRouter(
+          address(systemCoin), address(weth), initRAIETHPairLiquidity * 2, initETHRAIPairLiquidity * 2
+        );
+        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
+        raiWETHPair.transfer(address(alice), lpTokenAmount);
+
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
+
+        (uint sysCoins, uint collateral) = saviour.getTokensForSaving(safeHandler, oracleRelayer.redemptionPrice());
+
+        assertTrue(sysCoins > 0);
+        assertTrue(collateral > 0);
+    }
+    function test_getTokensForSaving_not_enough_lp_collateral() public {
+        // Create position
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+
+        weth.approve(address(collateralJoin), uint(-1));
+        collateralJoin.join(address(safeHandler), defaultTokenAmount);
+        alice.doModifySAFECollateralization(safeManager, safe, int(defaultCollateralAmount), int(defaultTokenAmount * 10));
+
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "eth", safe, 155);
+        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+
+        // Change oracle price
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 30);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 30);
+        oracleRelayer.updateCollateralPrice("eth");
+
+        // Deposit cover
+        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        addPairLiquidityRouter(
+          address(systemCoin), address(weth), initRAIETHPairLiquidity / 5, initETHRAIPairLiquidity / 5
+        );
+
+        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
+        raiWETHPair.transfer(address(alice), lpTokenAmount / 10);
+
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount / 10);
+
+        (uint sysCoins, uint collateral) = saviour.getTokensForSaving(safeHandler, oracleRelayer.redemptionPrice());
+
+        assertEq(sysCoins, 0);
+        assertEq(collateral, 0);
+    }
+    function test_getKeeperPayoutTokens_null_collateral_price() public {
+        address safeHandler = default_create_liquidatable_position_deposit_cover(200, initETHUSDPrice / 30);
+        ethFSM.updateCollateralPrice(0);
+
+        (uint sysCoins, uint collateral) = saviour.getKeeperPayoutTokens(safeHandler, oracleRelayer.redemptionPrice(), 0, 0);
+
+        assertEq(sysCoins, 0);
+        assertEq(collateral, 0);
+    }
+    function test_getKeeperPayoutTokens_null_sys_coin_price() public {
+        address safeHandler = default_create_liquidatable_position_deposit_cover(200, initETHUSDPrice / 30);
+        systemCoinOracle.updateCollateralPrice(0);
+
+        (uint sysCoins, uint collateral) = saviour.getKeeperPayoutTokens(safeHandler, oracleRelayer.redemptionPrice(), 0, 0);
+
+        assertEq(sysCoins, 0);
+        assertEq(collateral, 0);
+    }
+    function test_getKeeperPayoutTokens_only_sys_coins_used() public {
+        address safeHandler = default_create_liquidatable_position_deposit_cover(200, initETHUSDPrice / 30);
+        (uint sysCoins, uint collateral) = saviour.getKeeperPayoutTokens(safeHandler, oracleRelayer.redemptionPrice(), 0, 0);
+
+        assertEq(sysCoins, minKeeperPayoutValue * 10 ** 18 / systemCoinOracle.read());
+        assertEq(collateral, 0);
+    }
+    function test_getKeeperPayoutTokens_only_collateral_used() public {
+        (, address safeHandler) = default_create_position_deposit_cover();
+        (uint sysCoins, uint collateral) = saviour.getKeeperPayoutTokens(safeHandler, oracleRelayer.redemptionPrice(), uint(-1), 0);
+
+        assertEq(sysCoins, 0);
+        assertEq(collateral, minKeeperPayoutValue * 10 ** 18 / ethFSM.read());
+    }
+    function test_getKeeperPayoutTokens_both_tokens_used() public {
+        (, address safeHandler) = default_create_position_deposit_cover();
+        (uint underlyingSysCoins, ) = saviour.getLPUnderlying(safeHandler);
+
+        (uint sysCoins, uint collateral) =
+          saviour.getKeeperPayoutTokens(safeHandler, oracleRelayer.redemptionPrice(), underlyingSysCoins - (minKeeperPayoutValue * 10 ** 18 / (systemCoinOracle.read() * 2)), 0);
+
+        assertEq(sysCoins, (minKeeperPayoutValue * 10 ** 18 / (systemCoinOracle.read() * 2)));
+        assertEq(collateral, 2 ether);
+    }
+    function test_getKeeperPayoutTokens_not_enough_tokens_to_pay() public {
+        saviour.modifyParameters("minKeeperPayoutValue", 10000000 ether);
+
+        (, address safeHandler) = default_create_position_deposit_cover();
+        (uint sysCoins, uint collateral) = saviour.getKeeperPayoutTokens(safeHandler, oracleRelayer.redemptionPrice(), 0, 0);
+
+        assertEq(sysCoins, 0);
+        assertEq(collateral, 0);
+    }
+    function test_canSave_cannot_save_safe() public {
+        // Create position
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+
+        weth.approve(address(collateralJoin), uint(-1));
+        collateralJoin.join(address(safeHandler), defaultTokenAmount);
+        alice.doModifySAFECollateralization(safeManager, safe, int(defaultCollateralAmount), int(defaultTokenAmount * 10));
+
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "eth", safe, 155);
+        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+
+        // Change oracle price
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 30);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 30);
+        oracleRelayer.updateCollateralPrice("eth");
+
+        // Deposit cover
+        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        addPairLiquidityRouter(
+          address(systemCoin), address(weth), initRAIETHPairLiquidity / 5, initETHRAIPairLiquidity / 5
+        );
+
+        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
+        raiWETHPair.transfer(address(alice), lpTokenAmount / 10);
+
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount / 10);
+        assertTrue(!saviour.canSave("eth", safeHandler));
+    }
+    function test_canSave_cannot_pay_keeper() public {
+        saviour.modifyParameters("minKeeperPayoutValue", 10000000 ether);
+        address safeHandler = default_create_liquidatable_position_deposit_cover(200, initETHUSDPrice / 30);
+        assertTrue(!saviour.canSave("eth", safeHandler));
+    }
+    function test_canSave_both_tokens_used() public {
+        // Create position
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "eth", safe, 200);
+        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+
+        // Change oracle price
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 3);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 3);
+        oracleRelayer.updateCollateralPrice("eth");
+
+        // Deposit cover
+        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        addPairLiquidityRouter(
+          address(systemCoin), address(weth), initRAIETHPairLiquidity * 2, initETHRAIPairLiquidity * 2
+        );
+        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
+        raiWETHPair.transfer(address(alice), lpTokenAmount);
+
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
+        saviour.modifyParameters("minKeeperPayoutValue", 50 ether);
+
+        assertTrue(saviour.canSave("eth", safeHandler));
+    }
+    function test_canSave() public {
+        address safeHandler = default_create_liquidatable_position_deposit_cover(200, initETHUSDPrice / 30);
+        assertTrue(saviour.canSave("eth", safeHandler));
+    }
+    function testFail_saveSAFE_invalid_caller() public {
+        address safeHandler = default_create_liquidatable_position_deposit_cover(200, initETHUSDPrice / 30);
+        saviour.saveSAFE(address(this), "eth", safeHandler);
+    }
+    function test_saveSAFE_no_cover() public {
+        address safeHandler = default_create_liquidatable_position(200, initETHUSDPrice / 30);
+        default_liquidate_safe(safeHandler);
+    }
+    function test_saveSAFE_cannot_save_safe() public {
+        // Create position
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+
+        weth.approve(address(collateralJoin), uint(-1));
+        collateralJoin.join(address(safeHandler), defaultTokenAmount);
+        alice.doModifySAFECollateralization(safeManager, safe, int(defaultCollateralAmount), int(defaultTokenAmount * 10));
+
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "eth", safe, 155);
+        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+
+        // Change oracle price
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 30);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 30);
+        oracleRelayer.updateCollateralPrice("eth");
+
+        // Deposit cover
+        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        addPairLiquidityRouter(
+          address(systemCoin), address(weth), initRAIETHPairLiquidity / 5, initETHRAIPairLiquidity / 5
+        );
+
+        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
+        raiWETHPair.transfer(address(alice), lpTokenAmount / 10);
+
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount / 10);
+
+        default_liquidate_safe(safeHandler);
+    }
+    function test_saveSAFE_cannot_pay_keeper() public {
+        address safeHandler = default_create_liquidatable_position(200, initETHUSDPrice / 30);
+        saviour.modifyParameters("minKeeperPayoutValue", 10000000 ether);
+        default_liquidate_safe(safeHandler);
+    }
+    function test_saveSAFE() public {
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler, 200);
+    }
+    function test_saveSAFE_both_tokens() public {
+        // Create position
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "eth", safe, 200);
+        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+
+        // Change oracle price
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 3);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 3);
+        oracleRelayer.updateCollateralPrice("eth");
+
+        // Deposit cover
+        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        addPairLiquidityRouter(
+          address(systemCoin), address(weth), initRAIETHPairLiquidity * 2, initETHRAIPairLiquidity * 2
+        );
+        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
+        raiWETHPair.transfer(address(alice), lpTokenAmount);
+
+        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
+        saviour.modifyParameters("minKeeperPayoutValue", 50 ether);
+
+        assertTrue(saviour.canSave("eth", safeHandler));
+
+        liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
+        liquidationEngine.modifyParameters("eth", "liquidationPenalty", 1.1 ether);
+
+        uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
+        uint256 preSaveWETHKeeperBalance = weth.balanceOf(address(this));
+
+        uint auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
+        (uint256 sysCoinReserve, uint256 collateralReserve) = saviour.underlyingReserves(safeHandler);
+
+        assertEq(auction, 0);
+        assertTrue(
+          sysCoinReserve > 0 ||
+          collateralReserve > 0
+        );
+        assertTrue(
+          systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
+          weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
+        );
+        assertTrue(raiWETHPair.balanceOf(address(saviour)) < lpTokenAmount);
+        assertEq(raiWETHPair.balanceOf(address(liquidityManager)), 0);
+        assertEq(saviour.lpTokenCover(safeHandler), 0);
+
+        (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
+        assertEq(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), 199);
+    }
+    function test_saveSAFE_twice() public {
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler, 155);
+
+        hevm.warp(now + saviourRegistry.saveCooldown() + 1);
+        default_second_save(safe, safeHandler, 200);
+    }
+    function testFail_saveSAFE_withdraw_cover() public {
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler, 155);
+
+        alice.doWithdraw(saviour, safe, 1, address(this));
+    }
+    function test_saveSAFE_get_reserves() public {
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler, 155);
+
+        uint256 oldSysCoinBalance = systemCoin.balanceOf(address(alice));
+        uint256 oldCollateralBalance = weth.balanceOf(address(alice));
+
+        (uint sysCoinReserve, uint collateralReserve) = saviour.underlyingReserves(safeHandler);
+
+        alice.doGetReserves(saviour, safe, address(alice));
+        assertTrue(systemCoin.balanceOf(address(alice)) - sysCoinReserve == oldSysCoinBalance);
+        assertTrue(weth.balanceOf(address(alice)) - collateralReserve == oldCollateralBalance);
+
+        assertEq(systemCoin.balanceOf(address(saviour)), 0);
+        assertEq(weth.balanceOf(address(saviour)), 0);
+    }
+    function testFail_save_twice_without_waiting() public {
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler, 155);
+        default_second_save(safe, safeHandler, 200);
+    }
+    function test_saveSAFE_get_reserves_twice() public {
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler, 155);
+        alice.doGetReserves(saviour, safe, address(alice));
+
+        hevm.warp(now + saviourRegistry.saveCooldown() + 1);
+        default_second_save(safe, safeHandler, 200);
+
+        uint256 oldSysCoinBalance = systemCoin.balanceOf(address(0x1));
+        uint256 oldCollateralBalance = weth.balanceOf(address(0x1));
+
+        (uint sysCoinReserve, uint collateralReserve) = saviour.underlyingReserves(safeHandler);
+
+        alice.doGetReserves(saviour, safe, address(0x1));
+        assertTrue(systemCoin.balanceOf(address(0x1)) - sysCoinReserve == oldSysCoinBalance);
+        assertTrue(weth.balanceOf(address(0x1)) - collateralReserve == oldCollateralBalance);
+
+        assertEq(systemCoin.balanceOf(address(saviour)), 0);
+        assertEq(weth.balanceOf(address(saviour)), 0);
+    }
+    function testFail_getReserves_invalid_caller() public {
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler, 155);
+
+        saviour.getReserves(safe, address(alice));
     }
 }

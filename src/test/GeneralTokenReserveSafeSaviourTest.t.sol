@@ -153,9 +153,10 @@ contract FakeUser {
     function doWithdraw(
         GeneralTokenReserveSafeSaviour saviour,
         uint safe,
-        uint amount
+        uint amount,
+        address dst
     ) public {
-        saviour.withdraw(safe, amount);
+        saviour.withdraw(safe, amount, dst);
     }
 
     function doSetDesiredCollateralizationRatio(
@@ -430,11 +431,11 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         gold.transfer(address(alice), 500 ether);
         alice.doDeposit(saviour, gold, safe, 500 ether);
 
-        alice.doWithdraw(saviour, safe, 100 ether);
+        alice.doWithdraw(saviour, safe, 100 ether, address(this));
         assertEq(gold.balanceOf(address(saviour)), 400 ether);
         assertEq(saviour.collateralTokenCover(safeHandler), 400 ether);
 
-        alice.doWithdraw(saviour, safe, 400 ether);
+        alice.doWithdraw(saviour, safe, 400 ether, address(this));
         assertEq(gold.balanceOf(address(saviour)), 0);
         assertEq(saviour.collateralTokenCover(safeHandler), 0);
     }
@@ -447,7 +448,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         alice.doDeposit(saviour, gold, safe, 500 ether);
 
         default_repay_all_debt(safe, safeHandler);
-        alice.doWithdraw(saviour, safe, 500 ether);
+        alice.doWithdraw(saviour, safe, 500 ether, address(this));
         assertEq(gold.balanceOf(address(saviour)), 0);
         assertEq(saviour.collateralTokenCover(safeHandler), 0);
     }
@@ -462,7 +463,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         assertEq(gold.balanceOf(address(this)), 400 ether);
 
         alice.doSafeAllow(safeManager, safe, address(this), 1);
-        saviour.withdraw(safe, 250 ether);
+        saviour.withdraw(safe, 250 ether, address(this));
 
         assertEq(gold.balanceOf(address(this)), 650 ether);
         assertEq(gold.balanceOf(address(saviour)), 250 ether);
@@ -477,7 +478,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         alice.doDeposit(saviour, gold, safe, 500 ether);
 
         assertEq(gold.balanceOf(address(this)), 400 ether);
-        saviour.withdraw(safe, 250 ether);
+        saviour.withdraw(safe, 250 ether, address(this));
     }
     function test_set_desired_cratio_by_owner() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
