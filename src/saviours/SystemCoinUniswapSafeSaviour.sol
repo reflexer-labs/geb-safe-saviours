@@ -254,6 +254,51 @@ contract SystemCoinUniswapSafeSaviour is SafeMath, SafeSaviourLike {
         emit ModifyParameters(parameter, data);
     }
 
+    // --- Adding/Withdrawing Cover ---
+    /*
+    * @notice Deposit lpToken in the contract in order to provide cover for a specific SAFE managed by the SAFE Manager
+    * @param safeID The ID of the SAFE to protect. This ID should be registered inside GebSafeManager
+    * @param lpTokenAmount The amount of collateralToken to deposit
+    */
+    function deposit(uint256 safeID, uint256 lpTokenAmount) external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
+        require(lpTokenAmount > 0, "SystemCoinUniswapSafeSaviour/null-lp-amount");
+
+        // Check that the SAFE exists inside GebSafeManager
+        address safeHandler = safeManager.safes(safeID);
+        require(safeHandler != address(0), "SystemCoinUniswapSafeSaviour/null-handler");
+
+        // Check that the SAFE has debt
+        (, uint256 safeDebt) =
+          SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
+        require(safeDebt > 0, "SystemCoinUniswapSafeSaviour/safe-does-not-have-debt");
+
+        // Update the lpToken balance used to cover the SAFE and transfer tokens to this contract
+        lpTokenCover[safeHandler] = add(lpTokenCover[safeHandler], lpTokenAmount);
+        require(lpToken.transferFrom(msg.sender, address(this), lpTokenAmount), "SystemCoinUniswapSafeSaviour/could-not-transfer-lp");
+
+        emit Deposit(msg.sender, safeHandler, lpTokenAmount);
+    }
+    /*
+    * @notice Withdraw lpToken from the contract and provide less cover for a SAFE
+    * @dev Only an address that controls the SAFE inside the SAFE Manager can call this
+    * @param safeID The ID of the SAFE to remove cover from. This ID should be registered inside the SAFE Manager
+    * @param lpTokenAmount The amount of lpToken to withdraw
+    * @param dst The address that will receive the LP tokens
+    */
+    function withdraw(uint256 safeID, uint256 lpTokenAmount, address dst) external controlsSAFE(msg.sender, safeID) nonReentrant {
+        require(lpTokenAmount > 0, "SystemCoinUniswapSafeSaviour/null-lp-amount");
+
+        // Fetch the handler from the SAFE manager
+        address safeHandler = safeManager.safes(safeID);
+        require(lpTokenCover[safeHandler] >= lpTokenAmount, "SystemCoinUniswapSafeSaviour/not-enough-to-withdraw");
+
+        // Withdraw cover and transfer collateralToken to the caller
+        lpTokenCover[safeHandler] = sub(lpTokenCover[safeHandler], lpTokenAmount);
+        lpToken.transfer(dst, lpTokenAmount);
+
+        emit Withdraw(msg.sender, safeHandler, dst, lpTokenAmount);
+    }
+
     // --- Transferring Reserves ---
     /*
     * @notify Get back system coins or collateral tokens that were not used to save a specific SAFE
@@ -492,7 +537,8 @@ contract SystemCoinUniswapSafeSaviour is SafeMath, SafeSaviourLike {
         return targetCRatio;
     }
     /*
-    * @notify Return the amount of system coins and collateral tokens retrieved from the LP position covering a specific SAFE
+    * @notify Return the amount of system coins and collateral tokens retrieved from the
+    *         LP position covering a specific SAFE + converting the pair token to collateral tokens
     * @param safeHandler The handler/address of the targeted SAFE
     */
     function getLPUnderlying(address safeHandler) public view returns (uint256, uint256) {

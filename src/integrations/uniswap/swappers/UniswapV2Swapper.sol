@@ -92,6 +92,12 @@ contract UniswapV2Swapper is ReentrancyGuard, SwapManagerLike {
         uint denominator     = uniAddition(uniMultiply(reserveIn, 1000), amountInWithFee);
         amountOut = numerator / denominator;
     }
+    /*
+    * @notice Return the length of the tokenPath array
+    */
+    function getTokenPathLength() public view returns (uint256) {
+        return tokenPath.length;
+    }
 
     // --- Internal Logic ---
     /*

@@ -21,10 +21,12 @@ import "../integrations/uniswap/uni-v2/UniswapV2Factory.sol";
 import "../integrations/uniswap/uni-v2/UniswapV2Pair.sol";
 import "../integrations/uniswap/uni-v2/UniswapV2Router02.sol";
 
+import "../integrations/uniswap/swappers/UniswapV2Swapper.sol";
+
 import "../integrations/uniswap/liquidity-managers/UniswapV2LiquidityManager.sol";
 import "../integrations/uniswap/liquidity-managers/UniswapV3LiquidityManager.sol";
 
-import "../saviours/NativeUnderlyingUniswapSafeSaviour.sol";
+import "../saviours/SystemCoinUniswapSafeSaviour.sol";
 
 abstract contract Hevm {
     function warp(uint256) virtual public;
@@ -77,7 +79,7 @@ contract MockMedianizer {
 // Users
 contract FakeUser {
     function doModifyParameters(
-      NativeUnderlyingUniswapSafeSaviour saviour,
+      SystemCoinUniswapSafeSaviour saviour,
       bytes32 parameter,
       uint256 data
     ) public {
@@ -85,7 +87,7 @@ contract FakeUser {
     }
 
     function doModifyParameters(
-      NativeUnderlyingUniswapSafeSaviour saviour,
+      SystemCoinUniswapSafeSaviour saviour,
       bytes32 parameter,
       address data
     ) public {
@@ -163,7 +165,7 @@ contract FakeUser {
     }
 
     function doDeposit(
-        NativeUnderlyingUniswapSafeSaviour saviour,
+        SystemCoinUniswapSafeSaviour saviour,
         DSToken lpToken,
         uint256 safeID,
         uint256 tokenAmount
@@ -173,7 +175,7 @@ contract FakeUser {
     }
 
     function doWithdraw(
-        NativeUnderlyingUniswapSafeSaviour saviour,
+        SystemCoinUniswapSafeSaviour saviour,
         uint256 safeID,
         uint256 lpTokenAmount,
         address dst
@@ -182,7 +184,7 @@ contract FakeUser {
     }
 
     function doGetReserves(
-        NativeUnderlyingUniswapSafeSaviour saviour,
+        SystemCoinUniswapSafeSaviour saviour,
         uint256 safeID,
         address dst
     ) public {
@@ -208,17 +210,20 @@ contract FakeUser {
     }
 }
 
-contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
+contract SystemCoinUniswapV2SafeSaviourTest is DSTest {
     Hevm hevm;
 
     UniswapV2Factory uniswapFactory;
     UniswapV2Router02 uniswapRouter;
     UniswapV2LiquidityManager liquidityManager;
+    UniswapV2Swapper swapManager;
 
-    UniswapV2Pair raiWETHPair;
+    UniswapV2Pair stableWETHPair;
+    UniswapV2Pair raiSTABLEPair;
 
     Coin systemCoin;
     WETH9_ weth;
+    DSToken stableToken;
 
     TestSAFEEngine safeEngine;
     AccountingEngine accountingEngine;
@@ -235,7 +240,7 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
 
     GebSafeManager safeManager;
 
-    NativeUnderlyingUniswapSafeSaviour saviour;
+    SystemCoinUniswapSafeSaviour saviour;
     SaviourCRatioSetter cRatioSetter;
     SAFESaviourRegistry saviourRegistry;
 
@@ -248,12 +253,14 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
     address me;
 
     // Params
-    uint256 initTokenAmount  = 100000 ether;
-    uint256 initETHUSDPrice  = 250 * 10 ** 18;
-    uint256 initRAIUSDPrice  = 4.242 * 10 ** 18;
+    uint256 initTokenAmount    = 1000000 ether;
+    uint256 initETHUSDPrice    = 250 * 10 ** 18;
+    uint256 initRAIUSDPrice    = 4.242 * 10 ** 18;
+    uint256 initSTABLEUSDPrice = 10 ** 18;
 
-    uint256 initETHRAIPairLiquidity = 5 ether;               // 1250 USD
-    uint256 initRAIETHPairLiquidity = 294.672324375E18;      // 1 RAI = 4.242 USD
+    uint256 initETHPairLiquidity    = 5 ether;               // 1250 USD
+    uint256 initRAIPairLiquidity    = 294.672324375E18;      // 1 RAI = 4.242 USD
+    uint256 initSTABLEPairLiquidity = 1250 ether;            // 1250 USD
 
     // Saviour params
     bool isSystemCoinToken0;
@@ -268,13 +275,17 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
     uint256 ethCeiling = uint(-1);
     uint256 ethLiquidationPenalty = 1 ether;
 
-    uint256 defaultLiquidityMultiplier = 50;
+    uint256 defaultLiquidityMultiplier = 100;
     uint256 defaultCollateralAmount = 40 ether;
     uint256 defaultTokenAmount = 100 ether;
 
     function setUp() public {
         hevm = Hevm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
         hevm.warp(604411200);
+
+        // Stable token
+        stableToken = new DSToken("STABLE", "STABLE");
+        stableToken.mint(address(this), initTokenAmount);
 
         // System coin
         systemCoin = new Coin("RAI", "RAI", 1);
@@ -344,19 +355,23 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
 
         // Uniswap setup
         uniswapFactory = new UniswapV2Factory(address(this));
-        createUniswapPair();
+        createUniswapPairs();
         uniswapRouter = new UniswapV2Router02(address(uniswapFactory), address(weth));
-        addPairLiquidityRouter(address(systemCoin), address(weth), initRAIETHPairLiquidity, initETHRAIPairLiquidity);
+        addPairLiquidityRouter(address(stableToken), address(weth), initSTABLEPairLiquidity * 20, initETHPairLiquidity * 20);
+        addPairLiquidityRouter(address(systemCoin), address(stableToken), initRAIPairLiquidity * 20, initSTABLEPairLiquidity * 20);
 
         // Liquidity manager
-        liquidityManager = new UniswapV2LiquidityManager(address(raiWETHPair), address(uniswapRouter));
+        liquidityManager = new UniswapV2LiquidityManager(address(raiSTABLEPair), address(uniswapRouter));
+
+        // Swap manager
+        swapManager = new UniswapV2Swapper(address(uniswapFactory), address(uniswapRouter));
 
         // Saviour infra
         saviourRegistry = new SAFESaviourRegistry(saveCooldown);
         cRatioSetter = new SaviourCRatioSetter(address(oracleRelayer), address(safeManager));
         cRatioSetter.setDefaultCRatio("eth", defaultDesiredCollateralizationRatio);
 
-        saviour = new NativeUnderlyingUniswapSafeSaviour(
+        saviour = new SystemCoinUniswapSafeSaviour(
             isSystemCoinToken0,
             address(coinJoin),
             address(collateralJoin),
@@ -367,7 +382,9 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
             address(safeManager),
             address(saviourRegistry),
             address(liquidityManager),
-            address(raiWETHPair),
+            address(swapManager),
+            address(stableToken),
+            address(raiSTABLEPair),
             minKeeperPayoutValue
         );
         saviourRegistry.toggleSaviour(address(saviour));
@@ -389,12 +406,16 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
     }
 
     // --- Uniswap utils ---
-    function createUniswapPair() internal {
-        // Setup WETH/RAI pair
-        uniswapFactory.createPair(address(weth), address(systemCoin));
-        raiWETHPair = UniswapV2Pair(uniswapFactory.getPair(address(weth), address(systemCoin)));
+    function createUniswapPairs() internal {
+        // Setup STABLE/RAI pair
+        uniswapFactory.createPair(address(stableToken), address(systemCoin));
+        raiSTABLEPair = UniswapV2Pair(uniswapFactory.getPair(address(stableToken), address(systemCoin)));
 
-        if (address(raiWETHPair.token0()) == address(systemCoin)) isSystemCoinToken0 = true;
+        // Setup STABLE/WETH pair
+        uniswapFactory.createPair(address(weth), address(stableToken));
+        stableWETHPair = UniswapV2Pair(uniswapFactory.getPair(address(weth), address(stableToken)));
+
+        if (address(raiSTABLEPair.token0()) == address(systemCoin)) isSystemCoinToken0 = true;
     }
     function addPairLiquidityRouter(address token1, address token2, uint256 amount1, uint256 amount2) internal {
         DSToken(token1).approve(address(uniswapRouter), uint(-1));
@@ -437,15 +458,15 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         ethFSM.updateCollateralPrice(initETHUSDPrice / 30);
         oracleRelayer.updateCollateralPrice("eth");
 
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * defaultLiquidityMultiplier, initSTABLEPairLiquidity * defaultLiquidityMultiplier
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
-        assertEq(raiWETHPair.balanceOf(address(saviour)), lpTokenAmount);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount);
+        assertEq(raiSTABLEPair.balanceOf(address(saviour)), lpTokenAmount);
         assertTrue(saviour.canSave("eth", safeHandler));
 
         liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
@@ -453,21 +474,24 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
 
         uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
         uint256 preSaveWETHKeeperBalance = weth.balanceOf(address(this));
+        (uint256 oldSysCoinReserve, uint256 oldCollateralReserve) = saviour.underlyingReserves(safeHandler);
 
         uint auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
         (uint256 sysCoinReserve, uint256 collateralReserve) = saviour.underlyingReserves(safeHandler);
 
         assertEq(auction, 0);
+        assertEq(stableToken.balanceOf(address(saviour)), 0);
+        assertEq(stableToken.balanceOf(address(liquidityManager)), 0);
         assertTrue(
-          sysCoinReserve > 0 ||
-          collateralReserve > 0
+          sysCoinReserve > oldSysCoinReserve ||
+          collateralReserve > oldCollateralReserve
         );
         assertTrue(
           systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
           weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
         );
-        assertTrue(raiWETHPair.balanceOf(address(saviour)) < lpTokenAmount);
-        assertEq(raiWETHPair.balanceOf(address(liquidityManager)), 0);
+        assertEq(raiSTABLEPair.balanceOf(address(saviour)), 0);
+        assertEq(raiSTABLEPair.balanceOf(address(liquidityManager)), 0);
         assertEq(saviour.lpTokenCover(safeHandler), 0);
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
@@ -480,15 +504,15 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         ethFSM.updateCollateralPrice(initETHUSDPrice / 40);
         oracleRelayer.updateCollateralPrice("eth");
 
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * defaultLiquidityMultiplier, initSTABLEPairLiquidity * defaultLiquidityMultiplier
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
-        assertEq(raiWETHPair.balanceOf(address(saviour)), lpTokenAmount);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount);
+        assertEq(raiSTABLEPair.balanceOf(address(saviour)), lpTokenAmount);
         assertTrue(saviour.canSave("eth", safeHandler));
 
         liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(111 ether));
@@ -497,10 +521,13 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
         uint256 preSaveWETHKeeperBalance = weth.balanceOf(address(this));
         (uint256 oldSysCoinReserve, uint256 oldCollateralReserve) = saviour.underlyingReserves(safeHandler);
+
         uint auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
         (uint256 sysCoinReserve, uint256 collateralReserve) = saviour.underlyingReserves(safeHandler);
 
         assertEq(auction, 0);
+        assertEq(stableToken.balanceOf(address(saviour)), 0);
+        assertEq(stableToken.balanceOf(address(liquidityManager)), 0);
         assertTrue(
           sysCoinReserve > oldSysCoinReserve ||
           collateralReserve > oldCollateralReserve
@@ -509,8 +536,8 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
           systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
           weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
         );
-        assertTrue(raiWETHPair.balanceOf(address(saviour)) < lpTokenAmount);
-        assertEq(raiWETHPair.balanceOf(address(liquidityManager)), 0);
+        assertEq(raiSTABLEPair.balanceOf(address(saviour)), 0);
+        assertEq(raiSTABLEPair.balanceOf(address(liquidityManager)), 0);
         assertEq(saviour.lpTokenCover(safeHandler), 0);
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
@@ -549,15 +576,15 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         oracleRelayer.updateCollateralPrice("eth");
 
         // Deposit cover
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * defaultLiquidityMultiplier, initSTABLEPairLiquidity * defaultLiquidityMultiplier
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
-        assertEq(raiWETHPair.balanceOf(address(saviour)), lpTokenAmount);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount);
+        assertEq(raiSTABLEPair.balanceOf(address(saviour)), lpTokenAmount);
         assertEq(saviour.lpTokenCover(safeHandler), lpTokenAmount);
 
         return safeHandler;
@@ -568,15 +595,15 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         default_modify_collateralization(safe, safeHandler);
 
         // Deposit cover
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * defaultLiquidityMultiplier, initSTABLEPairLiquidity * defaultLiquidityMultiplier
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
-        assertEq(raiWETHPair.balanceOf(address(saviour)), lpTokenAmount);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount);
+        assertEq(raiSTABLEPair.balanceOf(address(saviour)), lpTokenAmount);
         assertEq(saviour.lpTokenCover(safeHandler), lpTokenAmount);
 
         return (safe, safeHandler);
@@ -605,8 +632,10 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         assertEq(address(saviour.safeManager()), address(safeManager));
         assertEq(address(saviour.saviourRegistry()), address(saviourRegistry));
         assertEq(address(saviour.liquidityManager()), address(liquidityManager));
-        assertEq(address(saviour.lpToken()), address(raiWETHPair));
+        assertEq(address(saviour.swapManager()), address(swapManager));
+        assertEq(address(saviour.lpToken()), address(raiSTABLEPair));
         assertEq(address(saviour.collateralToken()), address(weth));
+        assertEq(address(saviour.pairToken()), address(stableToken));
     }
     function test_modify_uints() public {
         saviour.modifyParameters("minKeeperPayoutValue", 5);
@@ -622,10 +651,12 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         saviour.modifyParameters("systemCoinOrcl", address(systemCoinOracle));
         saviour.modifyParameters("oracleRelayer", address(oracleRelayer));
         saviour.modifyParameters("liquidityManager", address(liquidityManager));
+        saviour.modifyParameters("swapManager", address(swapManager));
 
         assertEq(address(saviour.liquidityManager()), address(liquidityManager));
         assertEq(address(saviour.oracleRelayer()), address(oracleRelayer));
         assertEq(address(saviour.systemCoinOrcl()), address(systemCoinOracle));
+        assertEq(address(saviour.swapManager()), address(swapManager));
     }
     function testFail_modify_address_unauthed() public {
         alice.doModifyParameters(saviour, "systemCoinOrcl", address(systemCoinOracle));
@@ -637,90 +668,90 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         address safeHandler = safeManager.safes(safe);
         default_modify_collateralization(safe, safeHandler);
 
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * defaultLiquidityMultiplier, initSTABLEPairLiquidity * defaultLiquidityMultiplier
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), 1, lpTokenAmount);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), 1, lpTokenAmount);
     }
     function testFail_deposit_null_lp_token_amount() public {
         uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
         address safeHandler = safeManager.safes(safe);
         default_modify_collateralization(safe, safeHandler);
 
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * defaultLiquidityMultiplier, initSTABLEPairLiquidity * defaultLiquidityMultiplier
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), 1, 0);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), 1, 0);
     }
     function testFail_deposit_inexistent_safe() public {
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * defaultLiquidityMultiplier, initSTABLEPairLiquidity * defaultLiquidityMultiplier
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), 1, lpTokenAmount);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), 1, lpTokenAmount);
     }
     function test_deposit_twice() public {
-        uint256 initialLPSupply = raiWETHPair.totalSupply();
+        uint256 initialLPSupply = raiSTABLEPair.totalSupply();
 
         (uint safe, address safeHandler) = default_create_position_deposit_cover();
 
         // Second deposit
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * defaultLiquidityMultiplier, initSTABLEPairLiquidity * defaultLiquidityMultiplier
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount);
 
         // Checks
-        assertTrue(raiWETHPair.balanceOf(address(saviour)) > 0 && saviour.lpTokenCover(safeHandler) > 0);
-        assertEq(saviour.lpTokenCover(safeHandler), raiWETHPair.totalSupply() - initialLPSupply);
-        assertEq(raiWETHPair.balanceOf(address(saviour)), raiWETHPair.totalSupply() - initialLPSupply);
+        assertTrue(raiSTABLEPair.balanceOf(address(saviour)) > 0 && saviour.lpTokenCover(safeHandler) > 0);
+        assertEq(saviour.lpTokenCover(safeHandler), raiSTABLEPair.totalSupply() - initialLPSupply);
+        assertEq(raiSTABLEPair.balanceOf(address(saviour)), raiSTABLEPair.totalSupply() - initialLPSupply);
     }
     function test_deposit_after_everything_withdrawn() public {
         (uint safe, address safeHandler) = default_create_position_deposit_cover();
 
         // Withdraw
-        uint256 currentLPBalanceAlice   = raiWETHPair.balanceOf(address(alice));
-        uint256 currentLPBalanceSaviour = raiWETHPair.balanceOf(address(saviour));
+        uint256 currentLPBalanceAlice   = raiSTABLEPair.balanceOf(address(alice));
+        uint256 currentLPBalanceSaviour = raiSTABLEPair.balanceOf(address(saviour));
         alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler), address(alice));
 
         // Checks
-        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour);
-        assertTrue(raiWETHPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
+        assertEq(raiSTABLEPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour);
+        assertTrue(raiSTABLEPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
 
         // Deposit again
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, currentLPBalanceSaviour);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, currentLPBalanceSaviour);
 
         // Checks
-        assertTrue(raiWETHPair.balanceOf(address(saviour)) > 0 && saviour.lpTokenCover(safeHandler) > 0);
+        assertTrue(raiSTABLEPair.balanceOf(address(saviour)) > 0 && saviour.lpTokenCover(safeHandler) > 0);
         assertEq(saviour.lpTokenCover(safeHandler), currentLPBalanceSaviour);
-        assertEq(raiWETHPair.balanceOf(address(saviour)), currentLPBalanceSaviour);
-        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice);
+        assertEq(raiSTABLEPair.balanceOf(address(saviour)), currentLPBalanceSaviour);
+        assertEq(raiSTABLEPair.balanceOf(address(alice)), currentLPBalanceAlice);
     }
     function testFail_withdraw_unauthorized() public {
         (uint safe, ) = default_create_position_deposit_cover();
 
         // Withdraw by unauthed
         FakeUser bob = new FakeUser();
-        bob.doWithdraw(saviour, safe, raiWETHPair.balanceOf(address(saviour)), address(bob));
+        bob.doWithdraw(saviour, safe, raiSTABLEPair.balanceOf(address(saviour)), address(bob));
     }
     function testFail_withdraw_more_than_deposited() public {
         (uint safe, address safeHandler) = default_create_position_deposit_cover();
-        uint256 currentLPBalance = raiWETHPair.balanceOf(address(this));
+        uint256 currentLPBalance = raiSTABLEPair.balanceOf(address(this));
         alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler) + 1, address(this));
     }
     function testFail_withdraw_null() public {
@@ -731,45 +762,45 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         (uint safe, address safeHandler) = default_create_position_deposit_cover();
 
         // Withdraw
-        uint256 currentLPBalanceAlice   = raiWETHPair.balanceOf(address(alice));
-        uint256 currentLPBalanceSaviour = raiWETHPair.balanceOf(address(saviour));
+        uint256 currentLPBalanceAlice   = raiSTABLEPair.balanceOf(address(alice));
+        uint256 currentLPBalanceSaviour = raiSTABLEPair.balanceOf(address(saviour));
         alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler), address(alice));
 
         // Checks
-        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour);
-        assertTrue(raiWETHPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
+        assertEq(raiSTABLEPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour);
+        assertTrue(raiSTABLEPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
     }
     function test_withdraw_twice() public {
         (uint safe, address safeHandler) = default_create_position_deposit_cover();
 
         // Withdraw once
-        uint256 currentLPBalanceAlice   = raiWETHPair.balanceOf(address(alice));
-        uint256 currentLPBalanceSaviour = raiWETHPair.balanceOf(address(saviour));
+        uint256 currentLPBalanceAlice   = raiSTABLEPair.balanceOf(address(alice));
+        uint256 currentLPBalanceSaviour = raiSTABLEPair.balanceOf(address(saviour));
         alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler) / 2, address(alice));
 
         // Checks
-        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour / 2);
-        assertTrue(raiWETHPair.balanceOf(address(saviour)) == currentLPBalanceSaviour / 2 && saviour.lpTokenCover(safeHandler) == currentLPBalanceSaviour / 2);
+        assertEq(raiSTABLEPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour / 2);
+        assertTrue(raiSTABLEPair.balanceOf(address(saviour)) == currentLPBalanceSaviour / 2 && saviour.lpTokenCover(safeHandler) == currentLPBalanceSaviour / 2);
 
         // Withdraw again
         alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler), address(alice));
 
         // Checks
-        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour);
-        assertTrue(raiWETHPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
+        assertEq(raiSTABLEPair.balanceOf(address(alice)), currentLPBalanceAlice + currentLPBalanceSaviour);
+        assertTrue(raiSTABLEPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
     }
     function test_withdraw_custom_dst() public {
         (uint safe, address safeHandler) = default_create_position_deposit_cover();
 
         // Withdraw
-        uint256 currentLPBalanceAlice   = raiWETHPair.balanceOf(address(0xb1));
-        uint256 currentLPBalanceSaviour = raiWETHPair.balanceOf(address(saviour));
+        uint256 currentLPBalanceAlice   = raiSTABLEPair.balanceOf(address(0xb1));
+        uint256 currentLPBalanceSaviour = raiSTABLEPair.balanceOf(address(saviour));
         alice.doWithdraw(saviour, safe, saviour.lpTokenCover(safeHandler), address(0xb1));
 
         // Checks
-        assertEq(raiWETHPair.balanceOf(address(0xb1)), currentLPBalanceSaviour);
-        assertEq(raiWETHPair.balanceOf(address(alice)), currentLPBalanceAlice);
-        assertTrue(raiWETHPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
+        assertEq(raiSTABLEPair.balanceOf(address(0xb1)), currentLPBalanceSaviour);
+        assertEq(raiSTABLEPair.balanceOf(address(alice)), currentLPBalanceAlice);
+        assertTrue(raiSTABLEPair.balanceOf(address(saviour)) == 0 && saviour.lpTokenCover(safeHandler) == 0);
     }
     function test_tokenAmountUsedToSave() public {
         (uint safe, address safeHandler) = default_create_position_deposit_cover();
@@ -824,18 +855,18 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         address safeHandler = safeManager.safes(safe);
         default_modify_collateralization(safe, safeHandler);
 
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * defaultLiquidityMultiplier, initSTABLEPairLiquidity * defaultLiquidityMultiplier
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount);
 
         (uint sysCoins, uint collateral) = saviour.getLPUnderlying(safeHandler);
-        assertEq(sysCoins, initRAIETHPairLiquidity * defaultLiquidityMultiplier);
-        assertEq(collateral, initETHRAIPairLiquidity * defaultLiquidityMultiplier);
+        assertEq(sysCoins, initRAIPairLiquidity * defaultLiquidityMultiplier);
+        assertTrue(collateral > 0);
     }
     function test_getTokensForSaving_no_cover() public {
         (uint sysCoins, uint collateral) = saviour.getTokensForSaving(address(0x1), oracleRelayer.redemptionPrice());
@@ -881,14 +912,14 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         oracleRelayer.updateCollateralPrice("eth");
 
         // Deposit cover
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * 2, initETHRAIPairLiquidity * 2
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * 2, initSTABLEPairLiquidity * 2
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount);
 
         (uint sysCoins, uint collateral) = saviour.getTokensForSaving(safeHandler, oracleRelayer.redemptionPrice());
 
@@ -914,15 +945,15 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         oracleRelayer.updateCollateralPrice("eth");
 
         // Deposit cover
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity / 5, initETHRAIPairLiquidity / 5
+          address(systemCoin), address(stableToken), initRAIPairLiquidity / 5, initSTABLEPairLiquidity / 5
         );
 
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount / 10);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount / 10);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount / 10);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount / 10);
 
         (uint sysCoins, uint collateral) = saviour.getTokensForSaving(safeHandler, oracleRelayer.redemptionPrice());
 
@@ -999,17 +1030,22 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         oracleRelayer.updateCollateralPrice("eth");
 
         // Deposit cover
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity / 5, initETHRAIPairLiquidity / 5
+          address(systemCoin), address(stableToken), initRAIPairLiquidity / 5, initSTABLEPairLiquidity / 5
         );
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount / 10);
 
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount / 10);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount / 10);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount / 10);
         assertTrue(!saviour.canSave("eth", safeHandler));
     }
+
+
+
+
+
     function test_canSave_cannot_pay_keeper() public {
         saviour.modifyParameters("minKeeperPayoutValue", 10000000 ether);
         address safeHandler = default_create_liquidatable_position_deposit_cover(200, initETHUSDPrice / 30);
@@ -1031,14 +1067,14 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         oracleRelayer.updateCollateralPrice("eth");
 
         // Deposit cover
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * 2, initETHRAIPairLiquidity * 2
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * 2, initSTABLEPairLiquidity * 2
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount);
         saviour.modifyParameters("minKeeperPayoutValue", 50 ether);
 
         assertTrue(saviour.canSave("eth", safeHandler));
@@ -1074,15 +1110,14 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         oracleRelayer.updateCollateralPrice("eth");
 
         // Deposit cover
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity / 5, initETHRAIPairLiquidity / 5
+          address(systemCoin), address(stableToken), initRAIPairLiquidity / 5, initSTABLEPairLiquidity / 5
         );
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount / 10);
-
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount / 10);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount / 10);
 
         default_liquidate_safe(safeHandler);
     }
@@ -1112,14 +1147,14 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         oracleRelayer.updateCollateralPrice("eth");
 
         // Deposit cover
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
+        uint256 lpTokenAmount = raiSTABLEPair.balanceOf(address(this));
         addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * 2, initETHRAIPairLiquidity * 2
+          address(systemCoin), address(stableToken), initRAIPairLiquidity * 2, initSTABLEPairLiquidity * 2
         );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
+        lpTokenAmount = sub(raiSTABLEPair.balanceOf(address(this)), lpTokenAmount);
+        raiSTABLEPair.transfer(address(alice), lpTokenAmount);
 
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), safe, lpTokenAmount);
+        alice.doDeposit(saviour, DSToken(address(raiSTABLEPair)), safe, lpTokenAmount);
         saviour.modifyParameters("minKeeperPayoutValue", 50 ether);
 
         assertTrue(saviour.canSave("eth", safeHandler));
@@ -1129,21 +1164,24 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
 
         uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
         uint256 preSaveWETHKeeperBalance = weth.balanceOf(address(this));
+        (uint256 oldSysCoinReserve, uint256 oldCollateralReserve) = saviour.underlyingReserves(safeHandler);
 
         uint auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
         (uint256 sysCoinReserve, uint256 collateralReserve) = saviour.underlyingReserves(safeHandler);
 
         assertEq(auction, 0);
+        assertEq(stableToken.balanceOf(address(saviour)), 0);
+        assertEq(stableToken.balanceOf(address(liquidityManager)), 0);
         assertTrue(
-          sysCoinReserve > 0 ||
-          collateralReserve > 0
+          sysCoinReserve > oldSysCoinReserve ||
+          collateralReserve > oldCollateralReserve
         );
         assertTrue(
           systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
           weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
         );
-        assertTrue(raiWETHPair.balanceOf(address(saviour)) < lpTokenAmount);
-        assertEq(raiWETHPair.balanceOf(address(liquidityManager)), 0);
+        assertEq(raiSTABLEPair.balanceOf(address(saviour)), 0);
+        assertEq(raiSTABLEPair.balanceOf(address(liquidityManager)), 0);
         assertEq(saviour.lpTokenCover(safeHandler), 0);
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
