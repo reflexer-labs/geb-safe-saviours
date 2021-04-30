@@ -77,9 +77,12 @@ contract SaviourCRatioSetter is SafeMath, SaviourCRatioSetterLike {
         address safeHandler = safeManager.safes(safeID);
 
         require(scaledLiquidationRatio > 0, "SaviourCRatioSetter/invalid-scaled-liq-ratio");
-        require(scaledLiquidationRatio < cRatio, "SaviourCRatioSetter/invalid-desired-cratio");
         require(either(cRatio >= minDesiredCollateralizationRatios[collateralType], cRatio == 0), "SaviourCRatioSetter/invalid-min-ratio");
         require(cRatio <= MAX_CRATIO, "SaviourCRatioSetter/exceeds-max-cratio");
+
+        if (cRatio > 0) {
+            require(scaledLiquidationRatio < cRatio, "SaviourCRatioSetter/invalid-desired-cratio");
+        }
 
         desiredCollateralizationRatios[collateralType][safeHandler] = cRatio;
 
