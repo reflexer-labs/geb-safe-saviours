@@ -24,7 +24,7 @@ import "../integrations/uniswap/uni-v2/UniswapV2Router02.sol";
 import "../integrations/uniswap/liquidity-managers/UniswapV2LiquidityManager.sol";
 import "../integrations/uniswap/liquidity-managers/UniswapV3LiquidityManager.sol";
 
-import "../saviours/NativeUnderlyingUniswapSafeSaviour.sol";
+import "../saviours/NativeUnderlyingUniswapV2SafeSaviour.sol";
 
 abstract contract Hevm {
     function warp(uint256) virtual public;
@@ -77,7 +77,7 @@ contract MockMedianizer {
 // Users
 contract FakeUser {
     function doModifyParameters(
-      NativeUnderlyingUniswapSafeSaviour saviour,
+      NativeUnderlyingUniswapV2SafeSaviour saviour,
       bytes32 parameter,
       uint256 data
     ) public {
@@ -85,7 +85,7 @@ contract FakeUser {
     }
 
     function doModifyParameters(
-      NativeUnderlyingUniswapSafeSaviour saviour,
+      NativeUnderlyingUniswapV2SafeSaviour saviour,
       bytes32 parameter,
       address data
     ) public {
@@ -163,7 +163,7 @@ contract FakeUser {
     }
 
     function doDeposit(
-        NativeUnderlyingUniswapSafeSaviour saviour,
+        NativeUnderlyingUniswapV2SafeSaviour saviour,
         DSToken lpToken,
         uint256 safeID,
         uint256 tokenAmount
@@ -173,7 +173,7 @@ contract FakeUser {
     }
 
     function doWithdraw(
-        NativeUnderlyingUniswapSafeSaviour saviour,
+        NativeUnderlyingUniswapV2SafeSaviour saviour,
         uint256 safeID,
         uint256 lpTokenAmount,
         address dst
@@ -182,7 +182,7 @@ contract FakeUser {
     }
 
     function doGetReserves(
-        NativeUnderlyingUniswapSafeSaviour saviour,
+        NativeUnderlyingUniswapV2SafeSaviour saviour,
         uint256 safeID,
         address dst
     ) public {
@@ -235,7 +235,7 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
 
     GebSafeManager safeManager;
 
-    NativeUnderlyingUniswapSafeSaviour saviour;
+    NativeUnderlyingUniswapV2SafeSaviour saviour;
     SaviourCRatioSetter cRatioSetter;
     SAFESaviourRegistry saviourRegistry;
 
@@ -356,7 +356,7 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         cRatioSetter = new SaviourCRatioSetter(address(oracleRelayer), address(safeManager));
         cRatioSetter.setDefaultCRatio("eth", defaultDesiredCollateralizationRatio);
 
-        saviour = new NativeUnderlyingUniswapSafeSaviour(
+        saviour = new NativeUnderlyingUniswapV2SafeSaviour(
             isSystemCoinToken0,
             address(coinJoin),
             address(collateralJoin),
