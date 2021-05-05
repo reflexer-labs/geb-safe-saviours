@@ -545,6 +545,7 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
           uint256 debtToRepay = mul(
             mul(HUNDRED, mul(depositedCollateralToken, collateralPrice) / WAD) / targetCRatio, RAY
           ) / redemptionPrice;
+          debtToRepay         = div(mul(debtToRepay, RAY), getAccumulatedRate(collateralJoin.collateralType()));
 
           if (debtToRepay >= safeDebt) {
               return (0, 0);
@@ -558,12 +559,16 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         // Calculate the amount of collateral that would need to be added to the SAFE
-        uint256 debtGap               = sub(safeDebt, sysCoinsFromLP);
-        uint256 scaledDownDebtValue   = mul(
-          add(mul(redemptionPrice, debtGap) / RAY, ONE), targetCRatio
+        uint256 debtGap             = sub(safeDebt, sysCoinsFromLP);
+        uint256 scaledDownDebtValue = mul(
+          mul(redemptionPrice, debtGap) / RAY, getAccumulatedRate(collateralJoin.collateralType())
+        ) / RAY;
+        scaledDownDebtValue         = mul(
+          add(scaledDownDebtValue, ONE), targetCRatio
         ) / HUNDRED;
+
         uint256 collateralTokenNeeded = div(mul(scaledDownDebtValue, WAD), collateralPrice);
-        collateralTokenNeeded         = (depositedCollateralToken < collateralTokenNeeded) ?
+        collateralTokenNeeded         = (either(depositedCollateralToken < collateralTokenNeeded, collateralTokenNeeded == 0)) ?
           sub(collateralTokenNeeded, depositedCollateralToken) : MAX_UINT;
 
         // See if there's enough collateral to add to the SAFE in order to save it
@@ -626,5 +631,13 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
           // Otherwise, return zeroes
           return (0, 0);
         }
+    }
+    /*
+    * @notify Get the accumulated interest rate for a specific collateral type
+    * @param The collateral type for which to retrieve the rate
+    */
+    function getAccumulatedRate(bytes32 collateralType)
+      public view returns (uint256 accumulatedRate) {
+        (, accumulatedRate, , , , ) = safeEngine.collateralTypes(collateralType);
     }
 }

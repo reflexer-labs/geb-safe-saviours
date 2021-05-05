@@ -78,6 +78,9 @@ contract TestSAFEEngine is SAFEEngine {
     function balanceOf(address usr) public view returns (uint) {
         return uint(coinBalance[usr] / RAY);
     }
+    function setAccumulatedRate(bytes32 collateralType, uint256 rate) public {
+        collateralTypes[collateralType].accumulatedRate = rate;
+    }
 }
 contract TestAccountingEngine is AccountingEngine {
     constructor(address safeEngine, address surplusAuctionHouse, address debtAuctionHouse)
@@ -800,6 +803,39 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
     function test_canSave() public {
         address safeHandler = default_create_liquidatable_position_deposit_cover(250, 1 ether);
         assertTrue(saviour.canSave("gold", safeHandler));
+    }
+    function test_canSave_charged_interest() public {
+        address safeHandler = default_create_liquidatable_position_deposit_cover(250, 1 ether);
+
+        hevm.warp(now + 365 days);
+        safeEngine.setAccumulatedRate("gold", 10 ** 27 * 2);
+
+        assertTrue(saviour.canSave("gold", safeHandler));
+    }
+    function testFail_saveSAFE_debt_below_floor() public {
+        hevm.warp(now + 1);
+
+        uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        alice.doTransferInternalCoins(safeManager, safe, address(coinJoin), safeEngine.coinBalance(safeHandler));
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "gold", safe, 200);
+
+        goldMedian.updateCollateralPrice(3 ether);
+        goldFSM.updateCollateralPrice(3 ether);
+        oracleRelayer.updateCollateralPrice("gold");
+
+        safeEngine.mint(safeHandler, rad(defaultTokenAmount));
+        systemCoin.mint(address(alice), defaultTokenAmount);
+        alice.doDeposit(saviour, systemCoin, "gold", safe, defaultTokenAmount);
+
+        liquidationEngine.modifyParameters("gold", "liquidationQuantity", rad(111 ether));
+        liquidationEngine.modifyParameters("gold", "liquidationPenalty", 1.1 ether);
+
+        safeEngine.modifyParameters("gold", "debtFloor", defaultTokenAmount - 1);
+        saviour.saveSAFE(address(this), "gold", safeHandler);
     }
     function testFail_saveSAFE_invalid_caller() public {
         hevm.warp(now + 1);

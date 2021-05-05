@@ -557,6 +557,7 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         uint256 debtToRepay = mul(
           mul(HUNDRED, mul(depositedCollateralToken, collateralPrice) / WAD) / targetCRatio, RAY
         ) / redemptionPrice;
+        debtToRepay         = div(mul(debtToRepay, RAY), getAccumulatedRate(collateralJoin.collateralType()));
 
         if (debtToRepay >= safeDebt) {
             return (0, 0);
@@ -571,9 +572,13 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
             return (debtToRepay, 0);
         } else {
             // Calculate the amount of collateral that would need to be added to the SAFE
-            uint256 scaledDownDebtValue   = mul(
-              add(mul(redemptionPrice, sub(safeDebt, sysCoinsFromLP)) / RAY, ONE), targetCRatio
+            uint256 scaledDownDebtValue = mul(
+              mul(redemptionPrice, sub(safeDebt, sysCoinsFromLP)) / RAY, getAccumulatedRate(collateralJoin.collateralType())
+            ) / RAY;
+            scaledDownDebtValue         = mul(
+              add(scaledDownDebtValue, ONE), targetCRatio
             ) / HUNDRED;
+
             uint256 collateralTokenNeeded = div(mul(scaledDownDebtValue, WAD), collateralPrice);
             collateralTokenNeeded         = (depositedCollateralToken < collateralTokenNeeded) ?
               sub(collateralTokenNeeded, depositedCollateralToken) : MAX_UINT;
@@ -632,5 +637,13 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
           // Otherwise, return zeroes
           return (0, 0);
         }
+    }
+    /*
+    * @notify Get the accumulated interest rate for a specific collateral type
+    * @param The collateral type for which to retrieve the rate
+    */
+    function getAccumulatedRate(bytes32 collateralType)
+      public view returns (uint256 accumulatedRate) {
+        (, accumulatedRate, , , , ) = safeEngine.collateralTypes(collateralType);
     }
 }

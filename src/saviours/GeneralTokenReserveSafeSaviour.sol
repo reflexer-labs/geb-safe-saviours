@@ -358,7 +358,10 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
         // Calculate the value of the debt equivalent to the value of the collateralToken that would need to be in the SAFE after it's saved
         uint256 targetCRatio = (cRatioSetter.desiredCollateralizationRatios(collateralJoin.collateralType(), safeHandler) == 0) ?
           defaultCRatio : cRatioSetter.desiredCollateralizationRatios(collateralJoin.collateralType(), safeHandler);
-        uint256 scaledDownDebtValue = mul(add(mul(oracleRelayer.redemptionPrice(), safeDebt) / RAY, ONE), targetCRatio) / HUNDRED;
+        uint256 scaledDownDebtValue = mul(
+          mul(oracleRelayer.redemptionPrice(), safeDebt) / RAY, getAccumulatedRate(collateralJoin.collateralType())
+        ) / RAY;
+        scaledDownDebtValue         = mul(add(scaledDownDebtValue, ONE), targetCRatio) / HUNDRED;
 
         // Compute the amount of collateralToken the SAFE needs to get to the desired CRatio
         uint256 collateralTokenAmountNeeded = mul(scaledDownDebtValue, WAD) / priceFeedValue;
@@ -370,5 +373,13 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
           // Otherwise return the delta
           return sub(collateralTokenAmountNeeded, depositedCollateralToken);
         }
+    }
+    /*
+    * @notify Get the accumulated interest rate for a specific collateral type
+    * @param The collateral type for which to retrieve the rate
+    */
+    function getAccumulatedRate(bytes32 collateralType)
+      public view returns (uint256 accumulatedRate) {
+        (, accumulatedRate, , , , ) = safeEngine.collateralTypes(collateralType);
     }
 }

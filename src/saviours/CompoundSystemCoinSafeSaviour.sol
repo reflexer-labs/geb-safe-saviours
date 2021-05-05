@@ -418,12 +418,30 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         uint256 targetDebtAmount = mul(
           mul(HUNDRED, mul(depositedCollateralToken, priceFeedValue) / WAD) / targetCRatio, RAY
         ) / oracleRelayer.redemptionPrice();
+        targetDebtAmount         = mul(targetDebtAmount, RAY) / getAccumulatedRate(collateralType);
 
         // If you need to repay more than the amount of debt in the SAFE (or all the debt), return 0
-        if (targetDebtAmount >= safeDebt) {
+        if (either(targetDebtAmount >= safeDebt, debtBelowFloor(collateralType, targetDebtAmount))) {
           return 0;
         } else {
           return div(mul(sub(safeDebt, targetDebtAmount), WAD), cToken.exchangeRateCurrent());
         }
+    }
+    /*
+    * @notify Returns whether a target debt amount is below the debt floor of a specific collateral type
+    * @param collateralType The collateral type whose floor we compare against
+    * @param targetDebtAmount The target debt amount for a SAFE that has collateralType collateral in it
+    */
+    function debtBelowFloor(bytes32 collateralType, uint256 targetDebtAmount) public view returns (bool) {
+        (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralType);
+        return (targetDebtAmount < debtFloor);
+    }
+    /*
+    * @notify Get the accumulated interest rate for a specific collateral type
+    * @param The collateral type for which to retrieve the rate
+    */
+    function getAccumulatedRate(bytes32 collateralType)
+      public view returns (uint256 accumulatedRate) {
+        (, accumulatedRate, , , , ) = safeEngine.collateralTypes(collateralType);
     }
 }
