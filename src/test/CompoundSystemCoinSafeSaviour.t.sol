@@ -357,6 +357,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         taxCollector = new TaxCollector(address(safeEngine));
         taxCollector.initializeCollateralType("gold");
         taxCollector.modifyParameters("primaryTaxReceiver", address(accountingEngine));
+        taxCollector.modifyParameters("gold", "stabilityFee", 1000000564701133626865910626);  // 5% / day
         safeEngine.addAuthorization(address(taxCollector));
 
         liquidationEngine = new LiquidationEngine(address(safeEngine));
@@ -404,6 +405,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
             address(cRatioSetter),
             address(systemCoinOracle),
             address(liquidationEngine),
+            address(taxCollector),
             address(oracleRelayer),
             address(safeManager),
             address(saviourRegistry),
@@ -475,7 +477,9 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         assertTrue(cRAI.totalSupply() > 0);
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("gold", safeHandler);
-        assertEq(lockedCollateral * 3E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), desiredCRatio);
+        (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("gold");
+        uint256 computedCRatio = lockedCollateral * 3E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27);
+        assertTrue(computedCRatio == desiredCRatio || computedCRatio == desiredCRatio - 1);
     }
     function default_second_save(uint256 safe, address safeHandler, uint desiredCRatio) internal {
         alice.doSetDesiredCollateralizationRatio(cRatioSetter, "gold", safe, desiredCRatio);
@@ -501,7 +505,9 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         assertTrue(cRAI.totalSupply() > 0);
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("gold", safeHandler);
-        assertEq(lockedCollateral * 2.5E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), desiredCRatio);
+        (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("gold");
+        uint256 computedCRatio = lockedCollateral * 2.5E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27);
+        assertTrue(computedCRatio == desiredCRatio || computedCRatio == desiredCRatio - 1);
     }
     function default_liquidate_safe(address safeHandler) internal {
         goldMedian.updateCollateralPrice(3 ether);
@@ -586,6 +592,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         assertEq(address(saviour.liquidationEngine()), address(liquidationEngine));
         assertEq(address(saviour.oracleRelayer()), address(oracleRelayer));
         assertEq(address(saviour.systemCoinOrcl()), address(systemCoinOracle));
+        assertEq(address(saviour.taxCollector()), address(taxCollector));
         assertEq(address(saviour.systemCoin()), address(systemCoin));
         assertEq(address(saviour.safeEngine()), address(safeEngine));
         assertEq(address(saviour.safeManager()), address(safeManager));
@@ -807,8 +814,8 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
     function test_canSave_charged_interest() public {
         address safeHandler = default_create_liquidatable_position_deposit_cover(250, 1 ether);
 
-        hevm.warp(now + 365 days);
-        safeEngine.setAccumulatedRate("gold", 10 ** 27 * 2);
+        hevm.warp(now + 1 days);
+        taxCollector.taxSingle("gold");
 
         assertTrue(saviour.canSave("gold", safeHandler));
     }
@@ -904,9 +911,119 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
     function test_saveSAFE_high_cratio() public {
         hevm.warp(now + 1);
 
+        // Initial debt
+        gold.approve(address(collateralJoin));
+        collateralJoin.join(address(this), defaultTokenAmount);
+        safeEngine.modifySAFECollateralization("gold", me, me, me, int(defaultCollateralAmount), int(defaultTokenAmount));
+        safeEngine.transferInternalCoins(me, address(coinJoin), safeEngine.coinBalance(me));
+
+        // Target SAFE
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
         address safeHandler = safeManager.safes(safe);
-        default_save(safe, safeHandler, 999);
+
+        // Save
+        hevm.warp(now + 1 days);
+
+        gold.mint(address(this), defaultTokenAmount);
+        gold.approve(address(collateralJoin));
+        collateralJoin.join(address(safeHandler), defaultTokenAmount);
+        alice.doModifySAFECollateralization(safeManager, safe, int(defaultCollateralAmount), int(defaultTokenAmount));
+
+        alice.doTransferInternalCoins(safeManager, safe, address(coinJoin), safeEngine.coinBalance(safeHandler));
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "gold", safe, 950);
+        assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
+
+        goldMedian.updateCollateralPrice(3 ether);
+        goldFSM.updateCollateralPrice(3 ether);
+        oracleRelayer.updateCollateralPrice("gold");
+
+        safeEngine.mint(safeHandler, rad(defaultTokenAmount));
+        systemCoin.mint(address(alice), defaultTokenAmount);
+        alice.doDeposit(saviour, systemCoin, "gold", safe, defaultTokenAmount);
+
+        uint256 oldCTokenSupply = cRAI.totalSupply();
+
+        assertTrue(saviour.keeperPayoutExceedsMinValue());
+        assertTrue(saviour.canSave("gold", safeHandler));
+
+        liquidationEngine.modifyParameters("gold", "liquidationQuantity", rad(111 ether));
+        liquidationEngine.modifyParameters("gold", "liquidationPenalty", 1.1 ether);
+
+        assertEq(safeEngine.coinBalance(me), 0);
+
+        uint256 preSaveKeeperBalance = systemCoin.balanceOf(address(this));
+        uint auction = liquidationEngine.liquidateSAFE("gold", safeHandler);
+
+        // Checks
+        assertEq(auction, 0);
+        assertEq(safeEngine.coinBalance(me), 0);
+        assertEq(systemCoin.balanceOf(address(this)) - preSaveKeeperBalance, saviour.keeperPayout());
+        assertTrue(oldCTokenSupply - cRAI.totalSupply() > 0);
+        assertTrue(cRAI.totalSupply() > 0);
+
+        (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("gold", safeHandler);
+        (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("gold");
+        assertEq(lockedCollateral * 3E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27), 949);
+
+        assertEq(saviourRegistry.lastSaveTime("gold", safeHandler), now);
+    }
+    function test_saveSAFE_accumulate_rate() public {
+        // Initial debt
+        gold.approve(address(collateralJoin));
+        collateralJoin.join(address(this), defaultTokenAmount);
+        safeEngine.modifySAFECollateralization("gold", me, me, me, int(defaultCollateralAmount), int(defaultTokenAmount));
+        safeEngine.transferInternalCoins(me, address(coinJoin), safeEngine.coinBalance(me));
+
+        // Target safe
+        uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
+        address safeHandler = safeManager.safes(safe);
+
+        // Warp and tax
+        hevm.warp(now + 3 days);
+        taxCollector.taxSingle("gold");
+
+        // Save
+        gold.mint(address(this), defaultTokenAmount);
+        gold.approve(address(collateralJoin));
+        collateralJoin.join(address(safeHandler), defaultTokenAmount);
+        alice.doModifySAFECollateralization(safeManager, safe, int(defaultCollateralAmount), int(defaultTokenAmount / 2));
+
+        alice.doTransferInternalCoins(safeManager, safe, address(coinJoin), safeEngine.coinBalance(safeHandler));
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doSetDesiredCollateralizationRatio(cRatioSetter, "gold", safe, 200);
+        assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
+
+        goldMedian.updateCollateralPrice(2 ether);
+        goldFSM.updateCollateralPrice(2 ether);
+        oracleRelayer.updateCollateralPrice("gold");
+
+        safeEngine.mint(safeHandler, rad(defaultTokenAmount));
+        systemCoin.mint(address(alice), defaultTokenAmount);
+        alice.doDeposit(saviour, systemCoin, "gold", safe, defaultTokenAmount);
+
+        uint256 oldCTokenSupply = cRAI.totalSupply();
+
+        assertTrue(saviour.keeperPayoutExceedsMinValue());
+        assertTrue(saviour.canSave("gold", safeHandler));
+
+        liquidationEngine.modifyParameters("gold", "liquidationQuantity", rad(111 ether));
+        liquidationEngine.modifyParameters("gold", "liquidationPenalty", 1.1 ether);
+
+        assertEq(safeEngine.coinBalance(me), 0);
+
+        uint256 preSaveKeeperBalance = systemCoin.balanceOf(address(this));
+        uint auction = liquidationEngine.liquidateSAFE("gold", safeHandler);
+
+        assertEq(auction, 0);
+        assertEq(safeEngine.coinBalance(me), 0);
+        assertEq(systemCoin.balanceOf(address(this)) - preSaveKeeperBalance, saviour.keeperPayout());
+        assertTrue(oldCTokenSupply - cRAI.totalSupply() > 0);
+        assertTrue(cRAI.totalSupply() > 0);
+
+        (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("gold", safeHandler);
+        (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("gold");
+        assertEq(lockedCollateral * 2E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27), 199);
 
         assertEq(saviourRegistry.lastSaveTime("gold", safeHandler), now);
     }

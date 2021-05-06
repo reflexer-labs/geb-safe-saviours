@@ -317,6 +317,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         taxCollector = new TaxCollector(address(safeEngine));
         taxCollector.initializeCollateralType("gold");
         taxCollector.modifyParameters("primaryTaxReceiver", address(accountingEngine));
+        taxCollector.modifyParameters("gold", "stabilityFee", 1000000564701133626865910626);  // 5% / day
         safeEngine.addAuthorization(address(taxCollector));
 
         liquidationEngine = new LiquidationEngine(address(safeEngine));
@@ -357,6 +358,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
             address(cRatioSetter),
             address(collateralA),
             address(liquidationEngine),
+            address(taxCollector),
             address(oracleRelayer),
             address(safeManager),
             address(saviourRegistry),
@@ -617,6 +619,44 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
         address safeHandler = safeManager.safes(safe);
         default_save(safe, safeHandler, 200);
     }
+    function test_saveSAFE_accumulated_rate() public {
+        uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
+        address safeHandler = safeManager.safes(safe);
+
+        // Warp and save
+        hevm.warp(now + 5 days);
+        taxCollector.taxSingle("gold");
+
+        gold.approve(address(collateralA));
+        collateralA.join(address(safeHandler), 100 ether);
+        alice.doModifySAFECollateralization(safeManager, safe, 80 ether, 60 ether);
+
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doSetDesiredCollateralizationRatio(saviour, cRatioSetter, "gold", safe, 200);
+        assertEq(liquidationEngine.chosenSAFESaviour("gold", safeHandler), address(saviour));
+
+        goldMedian.updateCollateralPrice(1 ether);
+        goldFSM.updateCollateralPrice(1 ether);
+        oracleRelayer.updateCollateralPrice("gold");
+
+        gold.mint(address(alice), 1000000 ether);
+        alice.doDeposit(saviour, gold, safe, 1000000 ether);
+
+        assertTrue(saviour.keeperPayoutExceedsMinValue());
+        assertTrue(saviour.canSave("gold", safeHandler));
+
+        liquidationEngine.modifyParameters("gold", "liquidationQuantity", rad(111 ether));
+        liquidationEngine.modifyParameters("gold", "liquidationPenalty", 1.1 ether);
+
+        uint256 preSaveKeeperBalance = gold.balanceOf(address(this));
+        uint auction = liquidationEngine.liquidateSAFE("gold", safeHandler);
+        assertEq(auction, 0);
+        assertEq(gold.balanceOf(address(this)) - preSaveKeeperBalance, saviour.keeperPayout());
+
+        (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("gold", safeHandler);
+        (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("gold");
+        assertEq(lockedCollateral * 1E27 * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10**27), 200);
+    }
     function test_successfully_save_max_cratio() public {
         uint safe = alice.doOpenSafe(safeManager, "gold", address(alice));
         address safeHandler = safeManager.safes(safe);
@@ -653,6 +693,7 @@ contract GeneralTokenReserveSafeSaviourTest is DSTest {
             address(cRatioSetter),
             address(collateralA),
             address(liquidationEngine),
+            address(taxCollector),
             address(oracleRelayer),
             address(safeManager),
             address(saviourRegistry),

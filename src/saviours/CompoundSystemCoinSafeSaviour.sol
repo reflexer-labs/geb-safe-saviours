@@ -120,6 +120,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
       address cRatioSetter_,
       address systemCoinOrcl_,
       address liquidationEngine_,
+      address taxCollector_,
       address oracleRelayer_,
       address safeManager_,
       address saviourRegistry_,
@@ -131,6 +132,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         require(cRatioSetter_ != address(0), "CompoundSystemCoinSafeSaviour/null-cratio-setter");
         require(systemCoinOrcl_ != address(0), "CompoundSystemCoinSafeSaviour/null-system-coin-oracle");
         require(oracleRelayer_ != address(0), "CompoundSystemCoinSafeSaviour/null-oracle-relayer");
+        require(taxCollector_ != address(0), "CompoundSystemCoinSafeSaviour/null-tax-collector");
         require(liquidationEngine_ != address(0), "CompoundSystemCoinSafeSaviour/null-liquidation-engine");
         require(safeManager_ != address(0), "CompoundSystemCoinSafeSaviour/null-safe-manager");
         require(saviourRegistry_ != address(0), "CompoundSystemCoinSafeSaviour/null-saviour-registry");
@@ -146,6 +148,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         coinJoin             = CoinJoinLike(coinJoin_);
         cRatioSetter         = SaviourCRatioSetterLike(cRatioSetter_);
         liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
+        taxCollector         = TaxCollectorLike(taxCollector_);
         oracleRelayer        = OracleRelayerLike(oracleRelayer_);
         systemCoinOrcl       = PriceFeedLike(systemCoinOrcl_);
         systemCoin           = ERC20Like(coinJoin.systemCoin());
@@ -166,6 +169,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         emit ModifyParameters("keeperPayout", keeperPayout);
         emit ModifyParameters("minKeeperPayoutValue", minKeeperPayoutValue);
         emit ModifyParameters("liquidationEngine", liquidationEngine_);
+        emit ModifyParameters("taxCollector", taxCollector_);
         emit ModifyParameters("oracleRelayer", oracleRelayer_);
         emit ModifyParameters("systemCoinOrcl", systemCoinOrcl_);
     }
@@ -211,6 +215,9 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         }
         else if (parameter == "liquidationEngine") {
             liquidationEngine = LiquidationEngineLike(data);
+        }
+        else if (parameter == "taxCollector") {
+            taxCollector = TaxCollectorLike(data);
         }
         else revert("CompoundSystemCoinSafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, data);
@@ -305,6 +312,9 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         // Check that the fiat value of the keeper payout is high enough
         require(keeperPayoutExceedsMinValue(), "CompoundSystemCoinSafeSaviour/small-keeper-payout-value");
 
+        // Tax the collateral
+        taxCollector.taxSingle(collateralType);
+
         // Compute and check the validity of the amount of cTokens used to save the SAFE
         uint256 tokenAmountUsed = tokenAmountUsedToSave(collateralType, safeHandler);
         require(both(tokenAmountUsed != MAX_UINT, tokenAmountUsed != 0), "CompoundSystemCoinSafeSaviour/invalid-tokens-used-to-save");
@@ -329,15 +339,19 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         systemCoin.approve(address(coinJoin), systemCoinsToRepay);
 
         // Join system coins in the system and repay the SAFE's debt
-        coinJoin.join(address(this), systemCoinsToRepay);
-        safeEngine.modifySAFECollateralization(
-          collateralType,
-          safeHandler,
-          address(0),
-          address(this),
-          int256(0),
-          -int256(systemCoinsToRepay)
-        );
+        {
+          coinJoin.join(address(this), systemCoinsToRepay);
+          uint256 nonAdjustedSystemCoinsToRepay = div(mul(systemCoinsToRepay, RAY), getAccumulatedRate(collateralType));
+
+          safeEngine.modifySAFECollateralization(
+            collateralType,
+            safeHandler,
+            address(0),
+            address(this),
+            int256(0),
+            -int256(nonAdjustedSystemCoinsToRepay)
+          );
+        }
 
         // Send the fee to the keeper
         systemCoin.transfer(keeper, keeperPayout);
@@ -418,12 +432,12 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         uint256 targetDebtAmount = mul(
           mul(HUNDRED, mul(depositedCollateralToken, priceFeedValue) / WAD) / targetCRatio, RAY
         ) / oracleRelayer.redemptionPrice();
-        targetDebtAmount         = mul(targetDebtAmount, RAY) / getAccumulatedRate(collateralType);
 
         // If you need to repay more than the amount of debt in the SAFE (or all the debt), return 0
         if (either(targetDebtAmount >= safeDebt, debtBelowFloor(collateralType, targetDebtAmount))) {
           return 0;
         } else {
+          safeDebt = mul(safeDebt, getAccumulatedRate(collateralType)) / RAY;
           return div(mul(sub(safeDebt, targetDebtAmount), WAD), cToken.exchangeRateCurrent());
         }
     }

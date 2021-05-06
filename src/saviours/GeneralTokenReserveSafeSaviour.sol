@@ -101,6 +101,7 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
       address cRatioSetter_,
       address collateralJoin_,
       address liquidationEngine_,
+      address taxCollector_,
       address oracleRelayer_,
       address safeManager_,
       address saviourRegistry_,
@@ -111,6 +112,7 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
         require(cRatioSetter_ != address(0), "GeneralTokenReserveSafeSaviour/null-cratio-setter");
         require(collateralJoin_ != address(0), "GeneralTokenReserveSafeSaviour/null-collateral-join");
         require(liquidationEngine_ != address(0), "GeneralTokenReserveSafeSaviour/null-liquidation-engine");
+        require(taxCollector_ != address(0), "GeneralTokenReserveSafeSaviour/null-tax-collector");
         require(oracleRelayer_ != address(0), "GeneralTokenReserveSafeSaviour/null-oracle-relayer");
         require(safeManager_ != address(0), "GeneralTokenReserveSafeSaviour/null-safe-manager");
         require(saviourRegistry_ != address(0), "GeneralTokenReserveSafeSaviour/null-saviour-registry");
@@ -126,6 +128,7 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
 
         cRatioSetter         = SaviourCRatioSetterLike(cRatioSetter_);
         liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
+        taxCollector         = TaxCollectorLike(taxCollector_);
         collateralJoin       = CollateralJoinLike(collateralJoin_);
         oracleRelayer        = OracleRelayerLike(oracleRelayer_);
         safeEngine           = SAFEEngineLike(collateralJoin.safeEngine());
@@ -137,7 +140,13 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
         require(collateralJoin.decimals() == 18, "GeneralTokenReserveSafeSaviour/invalid-join-decimals");
         require(collateralJoin.contractEnabled() == 1, "GeneralTokenReserveSafeSaviour/join-disabled");
 
+        emit AddAuthorization(msg.sender);
+        emit ModifyParameters("keeperPayout", keeperPayout);
+        emit ModifyParameters("minKeeperPayoutValue", minKeeperPayoutValue);
         emit ModifyParameters("cRatioSetter", cRatioSetter_);
+        emit ModifyParameters("taxCollector", taxCollector_);
+        emit ModifyParameters("liquidationEngine", liquidationEngine_);
+        emit ModifyParameters("oracleRelayer", oracleRelayer_);
     }
 
     // --- Administration ---
@@ -176,6 +185,9 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
         }
         else if (parameter == "liquidationEngine") {
             liquidationEngine = LiquidationEngineLike(data);
+        }
+        else if (parameter == "taxCollector") {
+            taxCollector = TaxCollectorLike(data);
         }
         else revert("GeneralTokenReserveSafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, data);
@@ -248,6 +260,9 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
 
         // Check that the fiat value of the keeper payout is high enough
         require(keeperPayoutExceedsMinValue(), "GeneralTokenReserveSafeSaviour/small-keeper-payout-value");
+
+        // Tax the collateral type
+        taxCollector.taxSingle(collateralType);
 
         // Check that the amount of collateral locked in the safe is bigger than the keeper's payout
         (uint256 safeLockedCollateral,) =

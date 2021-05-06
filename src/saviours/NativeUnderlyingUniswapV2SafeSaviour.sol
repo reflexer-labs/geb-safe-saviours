@@ -141,6 +141,7 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         address cRatioSetter_,
         address systemCoinOrcl_,
         address liquidationEngine_,
+        address taxCollector_,
         address oracleRelayer_,
         address safeManager_,
         address saviourRegistry_,
@@ -154,6 +155,7 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         require(systemCoinOrcl_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-system-coin-oracle");
         require(oracleRelayer_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-oracle-relayer");
         require(liquidationEngine_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-liquidation-engine");
+        require(taxCollector_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-tax-collector");
         require(safeManager_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-safe-manager");
         require(saviourRegistry_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-saviour-registry");
         require(liquidityManager_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-liq-manager");
@@ -169,6 +171,7 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         collateralJoin       = CollateralJoinLike(collateralJoin_);
         cRatioSetter         = SaviourCRatioSetterLike(cRatioSetter_);
         liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
+        taxCollector         = TaxCollectorLike(taxCollector_);
         oracleRelayer        = OracleRelayerLike(oracleRelayer_);
         systemCoinOrcl       = PriceFeedLike(systemCoinOrcl_);
         systemCoin           = ERC20Like(coinJoin.systemCoin());
@@ -190,6 +193,7 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         emit AddAuthorization(msg.sender);
         emit ModifyParameters("minKeeperPayoutValue", minKeeperPayoutValue);
         emit ModifyParameters("oracleRelayer", oracleRelayer_);
+        emit ModifyParameters("taxCollector", taxCollector_);
         emit ModifyParameters("systemCoinOrcl", systemCoinOrcl_);
         emit ModifyParameters("liquidationEngine", liquidationEngine_);
         emit ModifyParameters("liquidityManager", liquidityManager_);
@@ -234,6 +238,9 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         }
         else if (parameter == "liquidationEngine") {
             liquidationEngine = LiquidationEngineLike(data);
+        }
+        else if (parameter == "taxCollector") {
+            taxCollector = TaxCollectorLike(data);
         }
         else revert("NativeUnderlyingUniswapV2SafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, data);
@@ -327,10 +334,14 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
             return (true, uint(-1), uint(-1));
         }
 
+        // Check that this is handling the correct collateral
         require(collateralType == collateralJoin.collateralType(), "NativeUnderlyingUniswapV2SafeSaviour/invalid-collateral-type");
 
         // Check that the SAFE has a non null amount of LP tokens covering it
         require(lpTokenCover[safeHandler] > 0, "NativeUnderlyingUniswapV2SafeSaviour/null-cover");
+
+        // Tax the collateral
+        taxCollector.taxSingle(collateralType);
 
         // Get the amount of tokens used to top up the SAFE
         (uint256 safeDebtRepaid, uint256 safeCollateralAdded) =
@@ -388,6 +399,8 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         if (safeDebtRepaid > 0) {
           // Approve the coin join contract to take system coins and repay debt
           systemCoin.approve(address(coinJoin), safeDebtRepaid);
+          // Calculate the non adjusted system coin amount
+          uint256 nonAdjustedSystemCoinsToRepay = div(mul(safeDebtRepaid, RAY), getAccumulatedRate(collateralType));
 
           // Join system coins in the system and repay the SAFE's debt
           coinJoin.join(address(this), safeDebtRepaid);
@@ -397,7 +410,7 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
             address(0),
             address(this),
             int256(0),
-            -int256(safeDebtRepaid)
+            -int256(nonAdjustedSystemCoinsToRepay)
           );
         }
 
@@ -557,11 +570,11 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         uint256 debtToRepay = mul(
           mul(HUNDRED, mul(depositedCollateralToken, collateralPrice) / WAD) / targetCRatio, RAY
         ) / redemptionPrice;
-        debtToRepay         = div(mul(debtToRepay, RAY), getAccumulatedRate(collateralJoin.collateralType()));
 
-        if (debtToRepay >= safeDebt) {
+        if (either(debtToRepay >= safeDebt, debtBelowFloor(collateralJoin.collateralType(), debtToRepay))) {
             return (0, 0);
         }
+        safeDebt    = mul(safeDebt, getAccumulatedRate(collateralJoin.collateralType())) / RAY;
         debtToRepay = sub(safeDebt, debtToRepay);
 
         // Calculate underlying amounts received from LP withdrawal
@@ -572,12 +585,7 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
             return (debtToRepay, 0);
         } else {
             // Calculate the amount of collateral that would need to be added to the SAFE
-            uint256 scaledDownDebtValue = mul(
-              mul(redemptionPrice, sub(safeDebt, sysCoinsFromLP)) / RAY, getAccumulatedRate(collateralJoin.collateralType())
-            ) / RAY;
-            scaledDownDebtValue         = mul(
-              add(scaledDownDebtValue, ONE), targetCRatio
-            ) / HUNDRED;
+            uint256 scaledDownDebtValue = mul(add(mul(redemptionPrice, sub(safeDebt, sysCoinsFromLP)) / RAY, ONE), targetCRatio) / HUNDRED;
 
             uint256 collateralTokenNeeded = div(mul(scaledDownDebtValue, WAD), collateralPrice);
             collateralTokenNeeded         = (depositedCollateralToken < collateralTokenNeeded) ?
@@ -637,6 +645,15 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
           // Otherwise, return zeroes
           return (0, 0);
         }
+    }
+    /*
+    * @notify Returns whether a target debt amount is below the debt floor of a specific collateral type
+    * @param collateralType The collateral type whose floor we compare against
+    * @param targetDebtAmount The target debt amount for a SAFE that has collateralType collateral in it
+    */
+    function debtBelowFloor(bytes32 collateralType, uint256 targetDebtAmount) public view returns (bool) {
+        (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralType);
+        return (targetDebtAmount < debtFloor);
     }
     /*
     * @notify Get the accumulated interest rate for a specific collateral type

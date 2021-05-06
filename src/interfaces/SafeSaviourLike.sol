@@ -23,6 +23,7 @@ import "./LiquidationEngineLike.sol";
 import "./PriceFeedLike.sol";
 import "./ERC20Like.sol";
 import "./GebSafeManagerLike.sol";
+import "./TaxCollectorLike.sol";
 import "./SAFESaviourRegistryLike.sol";
 
 import "../utils/ReentrancyGuard.sol";
@@ -43,6 +44,7 @@ abstract contract SafeSaviourLike is ReentrancyGuard {
 
     // --- Variables ---
     LiquidationEngineLike   public liquidationEngine;
+    TaxCollectorLike        public taxCollector;
     OracleRelayerLike       public oracleRelayer;
     GebSafeManagerLike      public safeManager;
     SAFEEngineLike          public safeEngine;
