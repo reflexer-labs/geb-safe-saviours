@@ -653,7 +653,7 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
     */
     function debtBelowFloor(bytes32 collateralType, uint256 targetDebtAmount) public view returns (bool) {
         (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralType);
-        return (targetDebtAmount < debtFloor);
+        return (mul(targetDebtAmount, RAY) < debtFloor);
     }
     /*
     * @notify Get the accumulated interest rate for a specific collateral type

@@ -161,7 +161,6 @@ contract SystemCoinUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         require(systemCoinOrcl_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-system-coin-oracle");
         require(oracleRelayer_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-oracle-relayer");
         require(liquidationEngine_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-liquidation-engine");
-        require(taxCollector_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-tax-collector");
         require(safeManager_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-safe-manager");
         require(saviourRegistry_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-saviour-registry");
         require(liquidityManager_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-liq-manager");

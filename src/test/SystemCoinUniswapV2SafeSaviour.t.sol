@@ -498,7 +498,8 @@ contract SystemCoinUniswapV2SafeSaviourTest is DSTest {
         assertEq(saviour.lpTokenCover(safeHandler), 0);
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
-        assertEq(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), desiredCRatio);
+        (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
+        assertEq(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27), desiredCRatio);
     }
     function default_second_save(uint256 safe, address safeHandler, uint desiredCRatio) internal {
         alice.doSetDesiredCollateralizationRatio(cRatioSetter, "eth", safe, desiredCRatio);
@@ -544,7 +545,8 @@ contract SystemCoinUniswapV2SafeSaviourTest is DSTest {
         assertEq(saviour.lpTokenCover(safeHandler), 0);
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
-        assertEq(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice()), desiredCRatio);
+        (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
+        assertEq(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27), desiredCRatio);
     }
     function default_liquidate_safe(address safeHandler) internal {
         liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));

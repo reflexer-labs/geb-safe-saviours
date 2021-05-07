@@ -265,6 +265,7 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
     uint256 minCRatio = 1.5 ether;
     uint256 ethToMint = 5000 ether;
     uint256 ethCeiling = uint(-1);
+    uint256 ethFloor = 10 ether;
     uint256 ethLiquidationPenalty = 1 ether;
 
     uint256 defaultLiquidityMultiplier = 50;
@@ -328,6 +329,7 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
 
         safeEngine.modifyParameters("eth", "debtCeiling", rad(ethCeiling));
         safeEngine.modifyParameters("globalDebtCeiling", rad(ethCeiling));
+        safeEngine.modifyParameters("eth", "debtFloor", rad(ethFloor));
 
         collateralAuctionHouse = new EnglishCollateralAuctionHouse(address(safeEngine), address(liquidationEngine), "eth");
         collateralAuctionHouse.addAuthorization(address(liquidationEngine));
@@ -515,7 +517,8 @@ contract NativeUnderlyingUniswapV2SafeSaviourTest is DSTest {
         assertEq(saviour.lpTokenCover(safeHandler), 0);
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
-        assertTrue(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice()) >= desiredCRatio);
+        (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
+        assertTrue(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27) >= desiredCRatio);
     }
     function default_liquidate_safe(address safeHandler) internal {
         liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
