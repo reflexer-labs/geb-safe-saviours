@@ -161,6 +161,7 @@ contract SystemCoinUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         require(systemCoinOrcl_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-system-coin-oracle");
         require(oracleRelayer_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-oracle-relayer");
         require(liquidationEngine_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-liquidation-engine");
+        require(taxCollector_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-tax-collector");
         require(safeManager_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-safe-manager");
         require(saviourRegistry_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-saviour-registry");
         require(liquidityManager_ != address(0), "SystemCoinUniswapV2SafeSaviour/null-liq-manager");
@@ -246,6 +247,9 @@ contract SystemCoinUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         }
         else if (parameter == "liquidationEngine") {
             liquidationEngine = LiquidationEngineLike(data);
+        }
+        else if (parameter == "taxCollector") {
+            taxCollector = TaxCollectorLike(data);
         }
         else if (parameter == "swapManager") {
             swapManager = SwapManagerLike(data);
@@ -342,10 +346,14 @@ contract SystemCoinUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
             return (true, uint(-1), uint(-1));
         }
 
+        // Check that we're handling the correct collateral
         require(collateralType == collateralJoin.collateralType(), "SystemCoinUniswapV2SafeSaviour/invalid-collateral-type");
 
         // Check that the SAFE has a non null amount of LP tokens covering it
         require(lpTokenCover[safeHandler] > 0, "SystemCoinUniswapV2SafeSaviour/null-cover");
+
+        // Tax the collateral
+        taxCollector.taxSingle(collateralType);
 
         // Get the amount of tokens used to top up the SAFE
         (uint256 safeDebtRepaid, uint256 safeCollateralAdded) =
@@ -361,26 +369,20 @@ contract SystemCoinUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         // There must be tokens that go to the keeper
         require(either(keeperSysCoins > 0, keeperCollateralCoins > 0), "SystemCoinUniswapV2SafeSaviour/cannot-pay-keeper");
 
-        // Store cover amount in local var
-        uint256 totalCover = lpTokenCover[safeHandler];
-        delete(lpTokenCover[safeHandler]);
-
         // Mark the SAFE in the registry as just having been saved
         saviourRegistry.markSave(collateralType, safeHandler);
 
         // Withdraw all liquidity
         uint256 sysCoinBalance        = systemCoin.balanceOf(address(this));
-        uint256 pairTokenBalance      = pairToken.balanceOf(address(this));
         uint256 collateralCoinBalance = collateralToken.balanceOf(address(this));
 
-        lpToken.approve(address(liquidityManager), totalCover);
-        liquidityManager.removeLiquidity(totalCover, 0, 0, address(this));
+        lpToken.approve(address(liquidityManager), lpTokenCover[safeHandler]);
+        liquidityManager.removeLiquidity(lpTokenCover[safeHandler], 0, 0, address(this));
 
         // Swap pair tokens to collateral tokens
         {
-          uint256 pairTokensReceived = sub(pairToken.balanceOf(address(this)), pairTokenBalance);
-          pairToken.approve(address(swapManager), pairTokensReceived);
-          swapManager.swap(address(pairToken), address(collateralToken), pairTokensReceived, 1, address(this));
+          pairToken.approve(address(swapManager), pairToken.balanceOf(address(this)));
+          swapManager.swap(address(pairToken), address(collateralToken), pairToken.balanceOf(address(this)), 1, address(this));
         }
 
         // Checks after removing liquidity and swapping pair tokens
@@ -411,6 +413,8 @@ contract SystemCoinUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         if (safeDebtRepaid > 0) {
           // Approve the coin join contract to take system coins and repay debt
           systemCoin.approve(address(coinJoin), safeDebtRepaid);
+          // Calculate the non adjusted system coin amount
+          uint256 nonAdjustedSystemCoinsToRepay = div(mul(safeDebtRepaid, RAY), getAccumulatedRate(collateralType));
 
           // Join system coins in the system and repay the SAFE's debt
           coinJoin.join(address(this), safeDebtRepaid);
@@ -420,7 +424,7 @@ contract SystemCoinUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
             address(0),
             address(this),
             int256(0),
-            -int256(safeDebtRepaid)
+            -int256(nonAdjustedSystemCoinsToRepay)
           );
         }
 
@@ -450,6 +454,9 @@ contract SystemCoinUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         // Emit an event
+        uint256 totalCover = lpTokenCover[safeHandler];
+        delete(lpTokenCover[safeHandler]);
+
         emit SaveSAFE(keeper, collateralType, safeHandler, totalCover);
 
         return (true, totalCover, 0);
@@ -579,42 +586,39 @@ contract SystemCoinUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
             return (0, 0);
         }
 
-        // Calculate how much debt would need to be repaid
-        uint256 debtToRepay = mul(
-          mul(HUNDRED, mul(depositedCollateralToken, collateralPrice) / WAD) / targetCRatio, RAY
-        ) / redemptionPrice;
-        debtToRepay         = div(mul(debtToRepay, RAY), getAccumulatedRate(collateralJoin.collateralType()));
-
-        if (debtToRepay >= safeDebt) {
-            return (0, 0);
-        }
-        debtToRepay = sub(safeDebt, debtToRepay);
-
         // Calculate underlying amounts received from LP withdrawal
         (uint256 sysCoinsFromLP, uint256 collateralFromLP) = getLPUnderlying(safeHandler);
 
-        // Determine total debt to repay; return if the SAFE can be saved solely by repaying debt, continue calculations otherwise
-        if (sysCoinsFromLP >= debtToRepay) {
-            return (debtToRepay, 0);
-        } else {
-            // Calculate the amount of collateral that would need to be added to the SAFE
-            uint256 scaledDownDebtValue = mul(
-              mul(redemptionPrice, sub(safeDebt, sysCoinsFromLP)) / RAY, getAccumulatedRate(collateralJoin.collateralType())
-            ) / RAY;
-            scaledDownDebtValue         = mul(
-              add(scaledDownDebtValue, ONE), targetCRatio
-            ) / HUNDRED;
+        // Calculate how much debt would need to be repaid
+        {
+          uint256 debtToRepay = mul(
+            mul(HUNDRED, mul(depositedCollateralToken, collateralPrice) / WAD) / targetCRatio, RAY
+          ) / redemptionPrice;
 
-            uint256 collateralTokenNeeded = div(mul(scaledDownDebtValue, WAD), collateralPrice);
-            collateralTokenNeeded         = (depositedCollateralToken < collateralTokenNeeded) ?
-              sub(collateralTokenNeeded, depositedCollateralToken) : MAX_UINT;
-
-            // See if there's enough collateral to add to the SAFE in order to save it
-            if (collateralTokenNeeded <= collateralFromLP) {
-              return (sysCoinsFromLP, collateralTokenNeeded);
-            } else {
+          if (either(debtToRepay >= safeDebt, debtBelowFloor(collateralJoin.collateralType(), debtToRepay))) {
               return (0, 0);
-            }
+          }
+          safeDebt    = mul(safeDebt, getAccumulatedRate(collateralJoin.collateralType())) / RAY;
+          debtToRepay = sub(safeDebt, debtToRepay);
+
+          // Determine total debt to repay; return if the SAFE can be saved solely by repaying debt, continue calculations otherwise
+          if (sysCoinsFromLP >= debtToRepay) {
+              return (debtToRepay, 0);
+          }
+        }
+
+        // Calculate the amount of collateral that would need to be added to the SAFE
+        uint256 debtGap               = sub(safeDebt, sysCoinsFromLP);
+        uint256 scaledDownDebtValue   = mul(add(mul(redemptionPrice, debtGap) / RAY, ONE), targetCRatio) / HUNDRED;
+        uint256 collateralTokenNeeded = div(mul(scaledDownDebtValue, WAD), collateralPrice);
+        collateralTokenNeeded         = (depositedCollateralToken < collateralTokenNeeded) ?
+          sub(collateralTokenNeeded, depositedCollateralToken) : MAX_UINT;
+
+        // See if there's enough collateral to add to the SAFE in order to save it
+        if (collateralTokenNeeded <= collateralFromLP) {
+          return (sysCoinsFromLP, collateralTokenNeeded);
+        } else {
+          return (0, 0);
         }
     }
     /*
@@ -663,6 +667,15 @@ contract SystemCoinUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
           // Otherwise, return zeroes
           return (0, 0);
         }
+    }
+    /*
+    * @notify Returns whether a target debt amount is below the debt floor of a specific collateral type
+    * @param collateralType The collateral type whose floor we compare against
+    * @param targetDebtAmount The target debt amount for a SAFE that has collateralType collateral in it
+    */
+    function debtBelowFloor(bytes32 collateralType, uint256 targetDebtAmount) public view returns (bool) {
+        (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralType);
+        return (mul(targetDebtAmount, RAY) < debtFloor);
     }
     /*
     * @notify Get the accumulated interest rate for a specific collateral type
