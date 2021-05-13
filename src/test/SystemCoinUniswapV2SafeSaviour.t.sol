@@ -546,7 +546,8 @@ contract SystemCoinUniswapV2SafeSaviourTest is DSTest {
 
         (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
         (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
-        assertEq(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27), desiredCRatio);
+        uint256 cRatio = lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27);
+        assertTrue(cRatio == desiredCRatio || cRatio == desiredCRatio - 1);
     }
     function default_liquidate_safe(address safeHandler) internal {
         liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
