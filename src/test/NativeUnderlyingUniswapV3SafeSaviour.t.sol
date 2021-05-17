@@ -18,7 +18,7 @@ import {SaviourCRatioSetter} from "../SaviourCRatioSetter.sol";
 import {SAFESaviourRegistry} from "../SAFESaviourRegistry.sol";
 
 import { GebUniswapV3TwoTrancheManager } from "geb-uni-v3-manager/GebUniswapV3TwoTrancheManager.sol";
-import { GebUniswapV3ManagerBaseTest } from "geb-uni-v3-manager/test/GebUniswapV3ManagerBaseTest.t.sol";
+import { GebUniswapV3ManagerBase, GebUniswapV3ManagerBaseTest } from "geb-uni-v3-manager/test/GebUniswapV3ManagerBaseTest.t.sol";
 
 import "../integrations/uniswap/liquidity-managers/UniswapV3LiquidityManager.sol";
 
@@ -207,7 +207,8 @@ contract FakeUser {
 }
 
 contract NativeUnderlyingUniswapV3SafeSaviourTest is GebUniswapV3ManagerBaseTest {
-    Hevm hevm;
+    GebUniswapV3TwoTrancheManager uniswapManager;
+    UniswapV3LiquidityManager liquidityManager;
 
     TestSAFEEngine safeEngine;
     AccountingEngine accountingEngine;
@@ -239,6 +240,13 @@ contract NativeUnderlyingUniswapV3SafeSaviourTest is GebUniswapV3ManagerBaseTest
     // Params
     uint256 tokenAmountMinted = 100000 ether;
 
+    // Uniswap manager related params
+    uint256 threshold1 = 200040; // 20%
+    uint256 threshold2 = 50040;  // 5%
+    uint128 ratio1 = 50;         // 36%
+    uint128 ratio2 = 50;         // 36%
+    uint256 delay = 120 minutes; // 10 minutes
+
     // Saviour params
     bool isSystemCoinToken0;
     uint256 saveCooldown = 1 days;
@@ -257,25 +265,22 @@ contract NativeUnderlyingUniswapV3SafeSaviourTest is GebUniswapV3ManagerBaseTest
     uint256 defaultCollateralAmount = 40 ether;
     uint256 defaultTokenAmount = 100 ether;
 
-    function setUp() public {
-        hevm = Hevm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
-        hevm.warp(604411200);
-
+    function setUp() override public {
         // Setup Uniswap V3 + manager
         super.setUp();
 
-        manager = new GebUniswapV3TwoTrancheManager("Geb-Uniswap-Manager", "GUM", address(testRai), uint128(delay), threshold1,threshold2, ratio1,ratio2, address(pool), oracle, pv);
-        manager_base = GebUniswapV3ManagerBase(manager);
+        uniswapManager = new GebUniswapV3TwoTrancheManager("Geb-Uniswap-Manager", "GUM", address(testRai), uint128(delay), threshold1, threshold2, ratio1, ratio2, address(pool), oracle, pv);
+        manager_base   = GebUniswapV3ManagerBase(uniswapManager);
 
         initialPoolPrice = helper_getRebalancePrice();
         pool.initialize(initialPoolPrice);
 
         helper_addWhaleLiquidity();
 
-        isSystemCoinToken0 = (address(token0) == address(testRAI)) ? true : false;
+        isSystemCoinToken0 = (address(token0) == address(testRai)) ? true : false;
 
         // Setup token oracles
-        (uint initRAIUSDPrice, uint initETHUSDPrice) = manager.getPrices();
+        (uint initRAIUSDPrice, uint initETHUSDPrice) = uniswapManager.getPrices();
         systemCoinOracle = new MockMedianizer(initRAIUSDPrice, true);
 
         ethFSM    = new MockMedianizer(initETHUSDPrice, true);
@@ -315,8 +320,7 @@ contract NativeUnderlyingUniswapV3SafeSaviourTest is GebUniswapV3ManagerBaseTest
 
         collateralJoin = new BasicCollateralJoin(address(safeEngine), "eth", address(testWeth));
 
-        coinJoin = new CoinJoin(address(safeEngine), address(testRAI));
-        testRAI.addAuthorization(address(coinJoin));
+        coinJoin = new CoinJoin(address(safeEngine), address(testRai));
         safeEngine.transferInternalCoins(address(this), address(coinJoin), safeEngine.coinBalance(address(this)));
 
         safeEngine.addAuthorization(address(collateralJoin));
@@ -339,7 +343,7 @@ contract NativeUnderlyingUniswapV3SafeSaviourTest is GebUniswapV3ManagerBaseTest
         oracleRelayer.updateCollateralPrice("eth");
 
         // Liquidity manager
-        liquidityManager = new UniswapV3LiquidityManager(address(manager));
+        liquidityManager = new UniswapV3LiquidityManager(address(uniswapManager));
 
         // Saviour infra
         saviourRegistry = new SAFESaviourRegistry(saveCooldown);
@@ -357,8 +361,8 @@ contract NativeUnderlyingUniswapV3SafeSaviourTest is GebUniswapV3ManagerBaseTest
             address(oracleRelayer),
             address(safeManager),
             address(saviourRegistry),
-            address(manager),
-            address(manager),
+            address(uniswapManager),
+            address(uniswapManager),
             minKeeperPayoutValue
         );
         saviourRegistry.toggleSaviour(address(saviour));
