@@ -17,8 +17,8 @@ import {GebSafeManager} from "geb-safe-manager/GebSafeManager.sol";
 import {SaviourCRatioSetter} from "../SaviourCRatioSetter.sol";
 import {SAFESaviourRegistry} from "../SAFESaviourRegistry.sol";
 
-import "geb-uni-v3-manager/test/GebUniswapV3TwoTrancheManager.sol";
-import "geb-uni-v3-manager/test/GebUniswapV3ManagerBaseTest.t.sol";
+import { GebUniswapV3TwoTrancheManager } from "geb-uni-v3-manager/GebUniswapV3TwoTrancheManager.sol";
+import { GebUniswapV3ManagerBaseTest } from "geb-uni-v3-manager/test/GebUniswapV3ManagerBaseTest.t.sol";
 
 import "../integrations/uniswap/liquidity-managers/UniswapV3LiquidityManager.sol";
 
@@ -75,7 +75,7 @@ contract MockMedianizer {
 // Users
 contract FakeUser {
     function doModifyParameters(
-      NativeUnderlyingUniswapV2SafeSaviour saviour,
+      NativeUnderlyingUniswapV3SafeSaviour saviour,
       bytes32 parameter,
       uint256 data
     ) public {
@@ -83,7 +83,7 @@ contract FakeUser {
     }
 
     function doModifyParameters(
-      NativeUnderlyingUniswapV2SafeSaviour saviour,
+      NativeUnderlyingUniswapV3SafeSaviour saviour,
       bytes32 parameter,
       address data
     ) public {
@@ -161,7 +161,7 @@ contract FakeUser {
     }
 
     function doDeposit(
-        NativeUnderlyingUniswapV2SafeSaviour saviour,
+        NativeUnderlyingUniswapV3SafeSaviour saviour,
         DSToken lpToken,
         uint256 safeID,
         uint256 tokenAmount
@@ -171,7 +171,7 @@ contract FakeUser {
     }
 
     function doWithdraw(
-        NativeUnderlyingUniswapV2SafeSaviour saviour,
+        NativeUnderlyingUniswapV3SafeSaviour saviour,
         uint256 safeID,
         uint256 lpTokenAmount,
         address dst
@@ -180,7 +180,7 @@ contract FakeUser {
     }
 
     function doGetReserves(
-        NativeUnderlyingUniswapV2SafeSaviour saviour,
+        NativeUnderlyingUniswapV3SafeSaviour saviour,
         uint256 safeID,
         address dst
     ) public {
@@ -209,8 +209,6 @@ contract FakeUser {
 contract NativeUnderlyingUniswapV3SafeSaviourTest is GebUniswapV3ManagerBaseTest {
     Hevm hevm;
 
-    GebUniswapV3TwoTrancheManager uniswapManager;
-
     TestSAFEEngine safeEngine;
     AccountingEngine accountingEngine;
     LiquidationEngine liquidationEngine;
@@ -226,7 +224,7 @@ contract NativeUnderlyingUniswapV3SafeSaviourTest is GebUniswapV3ManagerBaseTest
 
     GebSafeManager safeManager;
 
-    NativeUnderlyingUniswapV2SafeSaviour saviour;
+    NativeUnderlyingUniswapV3SafeSaviour saviour;
     SaviourCRatioSetter cRatioSetter;
     SAFESaviourRegistry saviourRegistry;
 
@@ -348,7 +346,7 @@ contract NativeUnderlyingUniswapV3SafeSaviourTest is GebUniswapV3ManagerBaseTest
         cRatioSetter = new SaviourCRatioSetter(address(oracleRelayer), address(safeManager));
         cRatioSetter.setDefaultCRatio("eth", defaultDesiredCollateralizationRatio);
 
-        saviour = new NativeUnderlyingUniswapV2SafeSaviour(
+        saviour = new NativeUnderlyingUniswapV3SafeSaviour(
             isSystemCoinToken0,
             address(coinJoin),
             address(collateralJoin),
@@ -381,4 +379,7 @@ contract NativeUnderlyingUniswapV3SafeSaviourTest is GebUniswapV3ManagerBaseTest
         require((z = x - y) <= x);
     }
 
+    function test_setup() public {
+
+    }
 }
