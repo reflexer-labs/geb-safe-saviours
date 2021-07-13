@@ -125,13 +125,14 @@ contract UniswapV2LiquidityManagerTest is DSTest {
     }
     function test_getLiquidityFromToken0() public {
         uint256 tokenAmount = (isSystemCoinToken0) ? initRAIETHPairLiquidity : initETHRAIPairLiquidity;
-        uint256 currentTokenSupply = systemCoin.balanceOf(address(this));
+        DSToken token0 = DSToken((isSystemCoinToken0) ? address(systemCoin) : address(weth));
+        uint256 currentTokenSupply = token0.balanceOf(address(this));
         uint256 lpTokens = liquidityManager.getLiquidityFromToken0(tokenAmount / 2);
 
         raiWETHPair.approve(address(liquidityManager), uint(-1));
         liquidityManager.removeLiquidity(lpTokens, 1, 1, address(this));
 
-        assertEq(systemCoin.balanceOf(address(this)) - currentTokenSupply, tokenAmount / 2);
+        assertEq(token0.balanceOf(address(this)) - currentTokenSupply, tokenAmount / 2);
     }
     function test_getLiquidityFromToken0_token_amount_larger_than_pool_supply() public {
         assertEq(liquidityManager.getLiquidityFromToken0(uint(-1)), 0);
@@ -142,13 +143,14 @@ contract UniswapV2LiquidityManagerTest is DSTest {
     }
     function test_getLiquidityFromToken1() public {
         uint256 tokenAmount = (isSystemCoinToken0) ? initETHRAIPairLiquidity : initRAIETHPairLiquidity;
-        uint256 currentTokenSupply = weth.balanceOf(address(this));
+        DSToken token1 = DSToken((isSystemCoinToken0) ? address(weth) : address(systemCoin));
+        uint256 currentTokenSupply = token1.balanceOf(address(this));
         uint256 lpTokens = liquidityManager.getLiquidityFromToken1(tokenAmount / 2);
 
         raiWETHPair.approve(address(liquidityManager), uint(-1));
         liquidityManager.removeLiquidity(lpTokens, 1, 1, address(this));
 
-        assertEq(weth.balanceOf(address(this)) - currentTokenSupply, tokenAmount / 2);
+        assertEq(token1.balanceOf(address(this)) - currentTokenSupply, tokenAmount / 2);
     }
     function test_getLiquidityFromToken1_token_amount_larger_than_pool_supply() public {
         assertEq(liquidityManager.getLiquidityFromToken1(uint(-1)), 0);
