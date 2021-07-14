@@ -321,7 +321,6 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
 
         emit Withdraw(msg.sender, safeHandler, dst, lpTokenAmount);
     }
-
     // --- Saving Logic ---
     /*
     * @notice Saves a SAFE by withdrawing liquidity and repaying debt and/or adding more collateral
@@ -350,7 +349,7 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         // Calls from liquidation engine allowed
         // other calls allowed if safe cRatio is lower than user defined cRatio
         if (address(liquidationEngine) != msg.sender)
-          require(div(getSafeCRatio(safeHandler), WAD) <= cRatioThresholdSetter.desiredCollateralizationRatios(collateralType, safeHandler), "NativeUnderlyingUniswapV2SafeSaviour/safe-above-threshold");
+          require(getSafeCRatio(safeHandler) <= mul(cRatioThresholdSetter.desiredCollateralizationRatios(collateralType, safeHandler), RAY / 100), "NativeUnderlyingUniswapV2SafeSaviour/safe-above-threshold");
 
         // Get the amount of tokens used to top up the SAFE
         (uint256 safeDebtRepaid, uint256 safeCollateralAdded) =
@@ -543,12 +542,10 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         bytes32 collateralType = collateralJoin.collateralType();
         (, uint256 accumulatedRate, uint256 safetyPrice, , , ) = safeEngine.collateralTypes(collateralType);
         (,, uint256 liquidationCRatio) = oracleRelayer.collateralTypes(collateralJoin.collateralType());
-        (uint256 collateralBalance, ) =
+        (uint256 collateralBalance, uint256 debtBalance) =
           SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
 
-        return div(div(mul(collateralBalance, mul(safetyPrice, liquidationCRatio)), RAY), accumulatedRate);
-
-
+        return div(mul(collateralBalance, mul(safetyPrice, liquidationCRatio)), mul(debtBalance, accumulatedRate));
     }
     /*
     * @notify Return the amount of system coins and collateral tokens retrieved from the LP position covering a specific SAFE
