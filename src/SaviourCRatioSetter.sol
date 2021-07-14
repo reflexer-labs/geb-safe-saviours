@@ -62,7 +62,6 @@ contract SaviourCRatioSetter is SafeMath, SaviourCRatioSetterLike {
         minDesiredCollateralizationRatios[collateralType] = cRatio;
         emit SetMinDesiredCollateralizationRatio(collateralType, cRatio);
     }
-
     // --- Adjust Cover Preferences ---
     /*
     * @notice Sets the collateralization ratio that a SAFE should have after it's saved
