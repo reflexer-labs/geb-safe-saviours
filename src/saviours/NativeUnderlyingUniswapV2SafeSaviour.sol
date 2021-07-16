@@ -348,8 +348,13 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
 
         // Calls from liquidation engine allowed
         // other calls allowed if safe cRatio is lower than user defined cRatio
-        if (address(liquidationEngine) != msg.sender)
-          require(getSafeCRatio(safeHandler) <= mul(cRatioThresholdSetter.desiredCollateralizationRatios(collateralType, safeHandler), RAY / 100), "NativeUnderlyingUniswapV2SafeSaviour/safe-above-threshold");
+        if (address(liquidationEngine) != msg.sender) {
+          require(getSafeCRatio(safeHandler) <= mul(cRatioThresholdSetter.desiredCollateralizationRatios(collateralType, safeHandler), RAY / 100),
+            "NativeUnderlyingUniswapV2SafeSaviour/safe-above-threshold");
+
+          require(cRatioThresholdSetter.desiredCollateralizationRatios(collateralType, safeHandler) < getTargetCRatio(safeHandler),
+            "NativeUnderlyingUniswapV2SafeSaviour/target-cRatio-lower-than-threshold");
+        }
 
         // Get the amount of tokens used to top up the SAFE
         (uint256 safeDebtRepaid, uint256 safeCollateralAdded) =
