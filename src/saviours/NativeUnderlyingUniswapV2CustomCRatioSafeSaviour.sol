@@ -18,8 +18,9 @@ pragma solidity 0.6.7;
 import "../interfaces/UniswapLiquidityManagerLike.sol";
 import "../interfaces/SafeSaviourLike.sol";
 import "../math/SafeMath.sol";
+import "../math/Math.sol";
 
-contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is SafeMath, SafeSaviourLike {
+contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, SafeSaviourLike {
     // --- Auth ---
     mapping (address => uint256) public authorizedAccounts;
     /**
@@ -81,6 +82,8 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is SafeMath, SafeSavio
     bool                           public isSystemCoinToken0;
     // Amount of LP tokens currently protecting each position
     mapping(address => uint256)    public lpTokenCover;
+    // Amount of system coin tokens that Safe owners can get back
+    mapping(address => uint256)   public underlyingReserves;
     // cRatio thresholds, below it anyone can call saveSAFE (safeHandler, threshold)
     mapping(address => uint)       public cRatioThresholds;
     // Amount of system coin/collateral tokens that Safe owners can get back
@@ -116,6 +119,12 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is SafeMath, SafeSavio
       address indexed safeHandler,
       address dst,
       uint256 lpTokenAmount
+    );
+    event GetReserves(
+      address indexed caller,
+      address indexed safeHandler,
+      uint256 systemCoinAmount,
+      address dst
     );
 
     constructor(
@@ -238,6 +247,23 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is SafeMath, SafeSavio
         address safeHandler = safeManager.safes(safeID);
         cRatioThresholds[safeHandler] = cRatioThreshold;
     }
+    // --- Transferring Reserves ---
+    /*
+    * @notify Get back system coins or collateral tokens that were withdrawn from Uniswap and not used to save a specific SAFE
+    * @param safeID The ID of the safe that was previously saved and has leftover funds that can be withdrawn
+    * @param dst The address that will receive
+    */
+    function getReserves(uint256 safeID, address dst) external controlsSAFE(msg.sender, safeID) nonReentrant {
+        address safeHandler = safeManager.safes(safeID);
+        uint256 systemCoins = underlyingReserves[safeHandler];
+
+        require(systemCoins > 0, "NativeUnderlyingUniswapV2SafeSaviour/no-reserves");
+        underlyingReserves[safeHandler] = 0;
+
+        systemCoin.transfer(dst, systemCoins);
+
+        emit GetReserves(msg.sender, safeHandler, systemCoins, dst);
+    }
     // --- Adding/Withdrawing Cover ---
     /*
     * @notice Deposit lpToken in the contract in order to provide cover for a specific SAFE managed by the SAFE Manager
@@ -320,20 +346,21 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is SafeMath, SafeSavio
         saviourRegistry.markSave(collateralType, safeHandler);
 
         // Withdraw all liquidity
-        uint256 sysCoinBalance        = systemCoin.balanceOf(address(this));
-        uint256 collateralCoinBalance = collateralToken.balanceOf(address(this));
+        uint256 systemCoinAmount = systemCoin.balanceOf(address(this));
+        uint256 collateralAmount = collateralToken.balanceOf(address(this));
 
         lpToken.approve(address(liquidityManager), totalCover);
         liquidityManager.removeLiquidity(totalCover, 0, 0, address(this));
 
         // Checks after removing liquidity
         require(
-          either(systemCoin.balanceOf(address(this)) > sysCoinBalance, collateralToken.balanceOf(address(this)) > collateralCoinBalance),
+          either(systemCoin.balanceOf(address(this)) > systemCoinAmount, collateralToken.balanceOf(address(this)) > collateralAmount),
           "NativeUnderlyingUniswapV2SafeSaviour/faulty-remove-liquidity"
         );
 
-        uint256 systemCoinAmount = sub(systemCoin.balanceOf(address(this)), sysCoinBalance);
-        uint256 collateralAmount = sub(collateralToken.balanceOf(address(this)), collateralCoinBalance);
+        systemCoinAmount = sub(systemCoin.balanceOf(address(this)), add(systemCoinAmount, underlyingReserves[safeHandler]));
+        collateralAmount = sub(collateralToken.balanceOf(address(this)), collateralAmount);
+        underlyingReserves[safeHandler] = 0;
 
         // Get the amounts of tokens sent to the keeper as payment
         (uint256 keeperSysCoins, uint256 keeperCollateralCoins) =
@@ -342,19 +369,29 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is SafeMath, SafeSavio
         // There must be tokens that go to the keeper
         require(either(keeperSysCoins > 0, keeperCollateralCoins > 0), "NativeUnderlyingUniswapV2SafeSaviour/cannot-pay-keeper");
 
-
+        // deduct keeper payouts from amount
         systemCoinAmount = sub(systemCoinAmount, keeperSysCoins);
         collateralAmount = sub(collateralAmount, keeperCollateralCoins);
 
         // Save the SAFE
         if (systemCoinAmount > 0) {
+          // Checking SAFE debt
+          (, uint256 safeDebt) = safeEngine.safes(collateralType, safeHandler);
+
+          if (safeDebt < systemCoinAmount) {
+            underlyingReserves[safeHandler] = sub(systemCoinAmount, safeDebt);
+            systemCoinAmount = safeDebt;
+          }
+
           // Approve the coin join contract to take system coins and repay debt
           systemCoin.approve(address(coinJoin), systemCoinAmount);
-          // Calculate the non adjusted system coin amount
-          uint256 nonAdjustedSystemCoinsToRepay = div(mul(systemCoinAmount, RAY), getAccumulatedRate(collateralType));
 
           // Join system coins in the system and repay the SAFE's debt
           coinJoin.join(address(this), systemCoinAmount);
+
+          // Calculate the non adjusted system coin amount, anything over will remain in the internal safe balance
+          uint256 nonAdjustedSystemCoinsToRepay = min(div(mul(systemCoinAmount, RAY), getAccumulatedRate(collateralType)), safeDebt);
+
           safeEngine.modifySAFECollateralization(
             collateralType,
             safeHandler,
