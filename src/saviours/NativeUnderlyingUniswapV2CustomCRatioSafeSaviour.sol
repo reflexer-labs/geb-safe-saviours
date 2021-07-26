@@ -16,11 +16,11 @@
 pragma solidity 0.6.7;
 
 import "../interfaces/UniswapLiquidityManagerLike.sol";
-import "../interfaces/SaviourCRatioSetterLike.sol";
 import "../interfaces/SafeSaviourLike.sol";
 import "../math/SafeMath.sol";
+import "../math/Math.sol";
 
-contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
+contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, SafeSaviourLike {
     // --- Auth ---
     mapping (address => uint256) public authorizedAccounts;
     /**
@@ -75,22 +75,18 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         _;
     }
 
-    // --- Structs ---
-    struct Reserves {
-        uint256 systemCoins;
-        uint256 collateralCoins;
-    }
-
     // --- Variables ---
     // Flag that tells whether usage of the contract is restricted to allowed users
     uint256                        public restrictUsage;
-
     // Whether the system coin is token0 in the Uniswap pool or not
     bool                           public isSystemCoinToken0;
     // Amount of LP tokens currently protecting each position
     mapping(address => uint256)    public lpTokenCover;
+    // Amount of system coin tokens that Safe owners can get back
+    mapping(address => uint256)   public underlyingReserves;
+    // cRatio thresholds, below it anyone can call saveSAFE (safeHandler, threshold)
+    mapping(address => uint)       public cRatioThresholds;
     // Amount of system coin/collateral tokens that Safe owners can get back
-    mapping(address => Reserves)   public underlyingReserves;
     // Liquidity manager contract for Uniswap v2/v3
     UniswapLiquidityManagerLike    public liquidityManager;
     // The ERC20 system coin
@@ -105,8 +101,6 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
     ERC20Like                      public collateralToken;
     // Oracle providing the system coin price feed
     PriceFeedLike                  public systemCoinOrcl;
-    // Contract that defines desired CRatios for each Safe after it is saved
-    SaviourCRatioSetterLike        public cRatioSetter;
 
     // --- Events ---
     event AddAuthorization(address account);
@@ -130,7 +124,6 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
       address indexed caller,
       address indexed safeHandler,
       uint256 systemCoinAmount,
-      uint256 collateralAmount,
       address dst
     );
 
@@ -138,7 +131,6 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         bool isSystemCoinToken0_,
         address coinJoin_,
         address collateralJoin_,
-        address cRatioSetter_,
         address systemCoinOrcl_,
         address liquidationEngine_,
         address taxCollector_,
@@ -151,7 +143,6 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
     ) public {
         require(coinJoin_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-coin-join");
         require(collateralJoin_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-collateral-join");
-        require(cRatioSetter_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-cratio-setter");
         require(systemCoinOrcl_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-system-coin-oracle");
         require(oracleRelayer_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-oracle-relayer");
         require(liquidationEngine_ != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-liquidation-engine");
@@ -164,23 +155,22 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
 
         authorizedAccounts[msg.sender] = 1;
 
-        isSystemCoinToken0   = isSystemCoinToken0_;
-        minKeeperPayoutValue = minKeeperPayoutValue_;
+        isSystemCoinToken0    = isSystemCoinToken0_;
+        minKeeperPayoutValue  = minKeeperPayoutValue_;
 
-        coinJoin             = CoinJoinLike(coinJoin_);
-        collateralJoin       = CollateralJoinLike(collateralJoin_);
-        cRatioSetter         = SaviourCRatioSetterLike(cRatioSetter_);
-        liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
-        taxCollector         = TaxCollectorLike(taxCollector_);
-        oracleRelayer        = OracleRelayerLike(oracleRelayer_);
-        systemCoinOrcl       = PriceFeedLike(systemCoinOrcl_);
-        systemCoin           = ERC20Like(coinJoin.systemCoin());
-        safeEngine           = SAFEEngineLike(coinJoin.safeEngine());
-        safeManager          = GebSafeManagerLike(safeManager_);
-        saviourRegistry      = SAFESaviourRegistryLike(saviourRegistry_);
-        liquidityManager     = UniswapLiquidityManagerLike(liquidityManager_);
-        lpToken              = ERC20Like(lpToken_);
-        collateralToken      = ERC20Like(collateralJoin.collateral());
+        coinJoin              = CoinJoinLike(coinJoin_);
+        collateralJoin        = CollateralJoinLike(collateralJoin_);
+        liquidationEngine     = LiquidationEngineLike(liquidationEngine_);
+        taxCollector          = TaxCollectorLike(taxCollector_);
+        oracleRelayer         = OracleRelayerLike(oracleRelayer_);
+        systemCoinOrcl        = PriceFeedLike(systemCoinOrcl_);
+        systemCoin            = ERC20Like(coinJoin.systemCoin());
+        safeEngine            = SAFEEngineLike(coinJoin.safeEngine());
+        safeManager           = GebSafeManagerLike(safeManager_);
+        saviourRegistry       = SAFESaviourRegistryLike(saviourRegistry_);
+        liquidityManager      = UniswapLiquidityManagerLike(liquidityManager_);
+        lpToken               = ERC20Like(lpToken_);
+        collateralToken       = ERC20Like(collateralJoin.collateral());
 
         systemCoinOrcl.getResultWithValidity();
         oracleRelayer.redemptionPrice();
@@ -246,6 +236,17 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         emit ModifyParameters(parameter, data);
     }
 
+    // --- Setting cRatio Threshold ---
+    /*
+    * @notice Set cRatio threshold
+    * @dev Only an address that controls the SAFE inside the SAFE Manager can call this
+    * @param safeID The ID of the SAFE to remove cover from. This ID should be registered inside the SAFE Manager
+    * @param cRatioThreshold The threshold below which a SAFE can be saved
+    */
+    function setCRatioThreshold(uint256 safeID, uint256 cRatioThreshold) external controlsSAFE(msg.sender, safeID) {
+        address safeHandler = safeManager.safes(safeID);
+        cRatioThresholds[safeHandler] = cRatioThreshold;
+    }
     // --- Transferring Reserves ---
     /*
     * @notify Get back system coins or collateral tokens that were withdrawn from Uniswap and not used to save a specific SAFE
@@ -254,28 +255,21 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
     */
     function getReserves(uint256 safeID, address dst) external controlsSAFE(msg.sender, safeID) nonReentrant {
         address safeHandler = safeManager.safes(safeID);
-        (uint256 systemCoins, uint256 collateralCoins) =
-          (underlyingReserves[safeHandler].systemCoins, underlyingReserves[safeHandler].collateralCoins);
+        uint256 systemCoins = underlyingReserves[safeHandler];
 
-        require(either(systemCoins > 0, collateralCoins > 0), "NativeUnderlyingUniswapV2SafeSaviour/no-reserves");
-        delete(underlyingReserves[safeManager.safes(safeID)]);
+        require(systemCoins > 0, "NativeUnderlyingUniswapV2SafeSaviour/no-reserves");
+        underlyingReserves[safeHandler] = 0;
 
-        if (systemCoins > 0) {
-          systemCoin.transfer(dst, systemCoins);
-        }
+        systemCoin.transfer(dst, systemCoins);
 
-        if (collateralCoins > 0) {
-          collateralToken.transfer(dst, collateralCoins);
-        }
-
-        emit GetReserves(msg.sender, safeHandler, systemCoins, collateralCoins, dst);
+        emit GetReserves(msg.sender, safeHandler, systemCoins, dst);
     }
-
     // --- Adding/Withdrawing Cover ---
     /*
     * @notice Deposit lpToken in the contract in order to provide cover for a specific SAFE managed by the SAFE Manager
     * @param safeID The ID of the SAFE to protect. This ID should be registered inside GebSafeManager
     * @param lpTokenAmount The amount of collateralToken to deposit
+    * @param threshold cRatio threshold
     */
     function deposit(uint256 safeID, uint256 lpTokenAmount) external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
         require(lpTokenAmount > 0, "NativeUnderlyingUniswapV2SafeSaviour/null-lp-amount");
@@ -315,11 +309,9 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
 
         emit Withdraw(msg.sender, safeHandler, dst, lpTokenAmount);
     }
-
     // --- Saving Logic ---
     /*
     * @notice Saves a SAFE by withdrawing liquidity and repaying debt and/or adding more collateral
-    * @dev Only the LiquidationEngine can call this
     * @param keeper The keeper that called LiquidationEngine.liquidateSAFE and that should be rewarded for spending gas to save a SAFE
     * @param collateralType The collateral type backing the SAFE that's being liquidated
     * @param safeHandler The handler of the SAFE that's being liquidated
@@ -327,7 +319,6 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
     *         system coins sent to the keeper as their payment (this implementation always returns 0)
     */
     function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external returns (bool, uint256, uint256) {
-        require(address(liquidationEngine) == msg.sender, "NativeUnderlyingUniswapV2SafeSaviour/caller-not-liquidation-engine");
         require(keeper != address(0), "NativeUnderlyingUniswapV2SafeSaviour/null-keeper-address");
 
         if (both(both(collateralType == "", safeHandler == address(0)), keeper == address(liquidationEngine))) {
@@ -343,19 +334,9 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         // Tax the collateral
         taxCollector.taxSingle(collateralType);
 
-        // Get the amount of tokens used to top up the SAFE
-        (uint256 safeDebtRepaid, uint256 safeCollateralAdded) =
-          getTokensForSaving(safeHandler, oracleRelayer.redemptionPrice());
-
-        // There must be tokens used to save the SAVE
-        require(either(safeDebtRepaid > 0, safeCollateralAdded > 0), "NativeUnderlyingUniswapV2SafeSaviour/cannot-save-safe");
-
-        // Get the amounts of tokens sent to the keeper as payment
-        (uint256 keeperSysCoins, uint256 keeperCollateralCoins) =
-          getKeeperPayoutTokens(safeHandler, oracleRelayer.redemptionPrice(), safeDebtRepaid, safeCollateralAdded);
-
-        // There must be tokens that go to the keeper
-        require(either(keeperSysCoins > 0, keeperCollateralCoins > 0), "NativeUnderlyingUniswapV2SafeSaviour/cannot-pay-keeper");
+        // calls allowed if safe cRatio is lower than user defined cRatio
+        require(getSafeCRatio(safeHandler) <= mul(cRatioThresholds[safeHandler], RAY / 100),
+            "NativeUnderlyingUniswapV2SafeSaviour/safe-above-threshold");
 
         // Store cover amount in local var
         uint256 totalCover = lpTokenCover[safeHandler];
@@ -365,45 +346,52 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         saviourRegistry.markSave(collateralType, safeHandler);
 
         // Withdraw all liquidity
-        uint256 sysCoinBalance        = systemCoin.balanceOf(address(this));
-        uint256 collateralCoinBalance = collateralToken.balanceOf(address(this));
+        uint256 systemCoinAmount = systemCoin.balanceOf(address(this));
+        uint256 collateralAmount = collateralToken.balanceOf(address(this));
 
         lpToken.approve(address(liquidityManager), totalCover);
         liquidityManager.removeLiquidity(totalCover, 0, 0, address(this));
 
         // Checks after removing liquidity
         require(
-          either(systemCoin.balanceOf(address(this)) > sysCoinBalance, collateralToken.balanceOf(address(this)) > collateralCoinBalance),
+          either(systemCoin.balanceOf(address(this)) > systemCoinAmount, collateralToken.balanceOf(address(this)) > collateralAmount),
           "NativeUnderlyingUniswapV2SafeSaviour/faulty-remove-liquidity"
         );
 
-        // Compute remaining balances of tokens that will go into reserves
-        sysCoinBalance        = sub(sub(systemCoin.balanceOf(address(this)), sysCoinBalance), add(safeDebtRepaid, keeperSysCoins));
-        collateralCoinBalance = sub(
-          sub(collateralToken.balanceOf(address(this)), collateralCoinBalance), add(safeCollateralAdded, keeperCollateralCoins)
-        );
+        systemCoinAmount = sub(systemCoin.balanceOf(address(this)), add(systemCoinAmount, underlyingReserves[safeHandler]));
+        collateralAmount = sub(collateralToken.balanceOf(address(this)), collateralAmount);
+        underlyingReserves[safeHandler] = 0;
 
-        // Update reserves
-        if (sysCoinBalance > 0) {
-          underlyingReserves[safeHandler].systemCoins = add(
-            underlyingReserves[safeHandler].systemCoins, sysCoinBalance
-          );
-        }
-        if (collateralCoinBalance > 0) {
-          underlyingReserves[safeHandler].collateralCoins = add(
-            underlyingReserves[safeHandler].collateralCoins, collateralCoinBalance
-          );
-        }
+        // Get the amounts of tokens sent to the keeper as payment
+        (uint256 keeperSysCoins, uint256 keeperCollateralCoins) =
+          getKeeperPayoutTokens(safeHandler, oracleRelayer.redemptionPrice(), systemCoinAmount, collateralAmount);
+
+        // There must be tokens that go to the keeper
+        require(either(keeperSysCoins > 0, keeperCollateralCoins > 0), "NativeUnderlyingUniswapV2SafeSaviour/cannot-pay-keeper");
+
+        // deduct keeper payouts from amount
+        systemCoinAmount = sub(systemCoinAmount, keeperSysCoins);
+        collateralAmount = sub(collateralAmount, keeperCollateralCoins);
 
         // Save the SAFE
-        if (safeDebtRepaid > 0) {
+        if (systemCoinAmount > 0) {
+          // Checking SAFE debt
+          (, uint256 safeDebt) = safeEngine.safes(collateralType, safeHandler);
+
+          if (safeDebt < systemCoinAmount) {
+            underlyingReserves[safeHandler] = sub(systemCoinAmount, safeDebt);
+            systemCoinAmount = safeDebt;
+          }
+
           // Approve the coin join contract to take system coins and repay debt
-          systemCoin.approve(address(coinJoin), safeDebtRepaid);
-          // Calculate the non adjusted system coin amount
-          uint256 nonAdjustedSystemCoinsToRepay = div(mul(safeDebtRepaid, RAY), getAccumulatedRate(collateralType));
+          systemCoin.approve(address(coinJoin), systemCoinAmount);
 
           // Join system coins in the system and repay the SAFE's debt
-          coinJoin.join(address(this), safeDebtRepaid);
+          coinJoin.join(address(this), systemCoinAmount);
+
+          // Calculate the non adjusted system coin amount, anything over will remain in the internal safe balance
+          uint256 nonAdjustedSystemCoinsToRepay = min(div(mul(systemCoinAmount, RAY), getAccumulatedRate(collateralType)), safeDebt);
+
           safeEngine.modifySAFECollateralization(
             collateralType,
             safeHandler,
@@ -414,18 +402,18 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
           );
         }
 
-        if (safeCollateralAdded > 0) {
+        if (collateralAmount > 0) {
           // Approve collateralToken to the collateral join contract
-          collateralToken.approve(address(collateralJoin), safeCollateralAdded);
+          collateralToken.approve(address(collateralJoin), collateralAmount);
 
           // Join collateralToken in the system and add it in the saved SAFE
-          collateralJoin.join(address(this), safeCollateralAdded);
+          collateralJoin.join(address(this), collateralAmount);
           safeEngine.modifySAFECollateralization(
             collateralType,
             safeHandler,
             address(this),
             address(0),
-            int256(safeCollateralAdded),
+            int256(collateralAmount),
             int256(0)
           );
         }
@@ -468,18 +456,15 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         uint256 redemptionPrice = oracleRelayer.redemptionPrice();
 
         // Fetch the amount of tokens used to save the SAFE
-        (uint256 safeDebtRepaid, uint256 safeCollateralAdded) =
-          getTokensForSaving(safeHandler, redemptionPrice);
+        (uint256 systemCoinAmount, uint256 collateralAmount) =
+          getLPUnderlying(safeHandler);
 
         // Fetch the amount of tokens sent to the keeper
         (uint256 keeperSysCoins, uint256 keeperCollateralCoins) =
-          getKeeperPayoutTokens(safeHandler, redemptionPrice, safeDebtRepaid, safeCollateralAdded);
+          getKeeperPayoutTokens(safeHandler, redemptionPrice, systemCoinAmount, collateralAmount);
 
         // If there are some tokens used to save the SAFE and some tokens used to repay the keeper, return true
-        if (both(
-          either(safeDebtRepaid > 0, safeCollateralAdded > 0),
-          either(keeperSysCoins > 0, keeperCollateralCoins > 0)
-        )) {
+        if (either(keeperSysCoins > 0, keeperCollateralCoins > 0)) {
           return true;
         }
 
@@ -516,15 +501,17 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         return priceFeedValue;
     }
     /*
-    * @notify Get the target collateralization ratio that a SAFE should have after it's saved
-    * @param safeHandler The handler/address of the SAFE whose target collateralization ratio is retrieved
+    * @notify Get the current collateralization ratio of a SAFE
+    * @param safeHandler The handler/address of the SAFE whose collateralization ratio is retrieved
     */
-    function getTargetCRatio(address safeHandler) public view returns (uint256) {
+    function getSafeCRatio(address safeHandler) public view returns (uint256) {
         bytes32 collateralType = collateralJoin.collateralType();
-        uint256 defaultCRatio  = cRatioSetter.defaultDesiredCollateralizationRatios(collateralType);
-        uint256 targetCRatio   = (cRatioSetter.desiredCollateralizationRatios(collateralType, safeHandler) == 0) ?
-          defaultCRatio : cRatioSetter.desiredCollateralizationRatios(collateralType, safeHandler);
-        return targetCRatio;
+        (, uint256 accumulatedRate, uint256 safetyPrice, , , ) = safeEngine.collateralTypes(collateralType);
+        (,, uint256 liquidationCRatio) = oracleRelayer.collateralTypes(collateralJoin.collateralType());
+        (uint256 collateralBalance, uint256 debtBalance) =
+          SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
+
+        return div(mul(collateralBalance, mul(safetyPrice, liquidationCRatio)), mul(debtBalance, accumulatedRate));
     }
     /*
     * @notify Return the amount of system coins and collateral tokens retrieved from the LP position covering a specific SAFE
@@ -542,71 +529,13 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         return (sysCoinsFromLP, collateralFromLP);
     }
     /*
-    * @notice Return the amount of system coins and/or collateral tokens used to save a SAFE
-    * @param safeHandler The handler/address of the targeted SAFE
-    * @param redemptionPrice The system coin redemption price used in calculations
-    */
-    function getTokensForSaving(address safeHandler, uint256 redemptionPrice)
-      public view returns (uint256, uint256) {
-        if (either(lpTokenCover[safeHandler] == 0, redemptionPrice == 0)) {
-            return (0, 0);
-        }
-
-        // Get the default CRatio for the SAFE
-        (uint256 depositedCollateralToken, uint256 safeDebt) =
-          SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
-        uint256 targetCRatio = getTargetCRatio(safeHandler);
-        if (either(safeDebt == 0, targetCRatio == 0)) {
-            return (0, 0);
-        }
-
-        // Get the collateral market price
-        uint256 collateralPrice = getCollateralPrice();
-        if (collateralPrice == 0) {
-            return (0, 0);
-        }
-
-        // Calculate how much debt would need to be repaid
-        uint256 debtToRepay = mul(
-          mul(HUNDRED, mul(depositedCollateralToken, collateralPrice) / WAD) / targetCRatio, RAY
-        ) / redemptionPrice;
-
-        if (either(debtToRepay >= safeDebt, debtBelowFloor(collateralJoin.collateralType(), debtToRepay))) {
-            return (0, 0);
-        }
-        safeDebt    = mul(safeDebt, getAccumulatedRate(collateralJoin.collateralType())) / RAY;
-        debtToRepay = sub(safeDebt, debtToRepay);
-
-        // Calculate underlying amounts received from LP withdrawal
-        (uint256 sysCoinsFromLP, uint256 collateralFromLP) = getLPUnderlying(safeHandler);
-
-        // Determine total debt to repay; return if the SAFE can be saved solely by repaying debt, continue calculations otherwise
-        if (sysCoinsFromLP >= debtToRepay) {
-            return (debtToRepay, 0);
-        } else {
-            // Calculate the amount of collateral that would need to be added to the SAFE
-            uint256 scaledDownDebtValue = mul(add(mul(redemptionPrice, sub(safeDebt, sysCoinsFromLP)) / RAY, ONE), targetCRatio) / HUNDRED;
-
-            uint256 collateralTokenNeeded = div(mul(scaledDownDebtValue, WAD), collateralPrice);
-            collateralTokenNeeded         = (depositedCollateralToken < collateralTokenNeeded) ?
-              sub(collateralTokenNeeded, depositedCollateralToken) : MAX_UINT;
-
-            // See if there's enough collateral to add to the SAFE in order to save it
-            if (collateralTokenNeeded <= collateralFromLP) {
-              return (sysCoinsFromLP, collateralTokenNeeded);
-            } else {
-              return (0, 0);
-            }
-        }
-    }
-    /*
     * @notice Return the amount of system coins and/or collateral tokens used to pay a keeper
     * @param safeHandler The handler/address of the targeted SAFE
     * @param redemptionPrice The system coin redemption price used in calculations
-    * @param safeDebtRepaid The amount of system coins that are already used to save the targeted SAFE
-    * @param safeCollateralAdded The amount of collateral tokens that are already used to save the targeted SAFE
+    * @param sysCoinAmount Amount of system coin available
+    * @param collateralAmount The amount of collateral tokens that are available
     */
-    function getKeeperPayoutTokens(address safeHandler, uint256 redemptionPrice, uint256 safeDebtRepaid, uint256 safeCollateralAdded)
+    function getKeeperPayoutTokens(address safeHandler, uint256 redemptionPrice, uint256 sysCoinAmount, uint256 collateralAmount)
       public view returns (uint256, uint256) {
         // Get the system coin and collateral market prices
         uint256 collateralPrice    = getCollateralPrice();
@@ -615,31 +544,22 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
             return (0, 0);
         }
 
-        // Calculate underlying amounts received from LP withdrawal
-        (uint256 sysCoinsFromLP, uint256 collateralFromLP) = getLPUnderlying(safeHandler);
-
         // Check if the keeper can get system coins and if yes, compute how many
         uint256 keeperSysCoins;
-        if (sysCoinsFromLP > safeDebtRepaid) {
-            uint256 remainingSystemCoins = sub(sysCoinsFromLP, safeDebtRepaid);
-            uint256 payoutInSystemCoins  = div(mul(minKeeperPayoutValue, WAD), sysCoinMarketPrice);
+        uint256 payoutInSystemCoins  = div(mul(minKeeperPayoutValue, WAD), sysCoinMarketPrice);
 
-            if (payoutInSystemCoins <= remainingSystemCoins) {
-              return (payoutInSystemCoins, 0);
-            } else {
-              keeperSysCoins = remainingSystemCoins;
-            }
+        if (payoutInSystemCoins <= sysCoinAmount) {
+            return (payoutInSystemCoins, 0);
+        } else {
+            keeperSysCoins = sysCoinAmount;
         }
 
         // Calculate how much collateral the keeper will get
-        if (collateralFromLP <= safeCollateralAdded) return (0, 0);
-
-        uint256 remainingCollateral        = sub(collateralFromLP, safeCollateralAdded);
         uint256 remainingKeeperPayoutValue = sub(minKeeperPayoutValue, mul(keeperSysCoins, sysCoinMarketPrice) / WAD);
         uint256 collateralTokenNeeded      = div(mul(remainingKeeperPayoutValue, WAD), collateralPrice);
 
         // If there are enough collateral tokens retreived from LP in order to pay the keeper, return the token amounts
-        if (collateralTokenNeeded <= remainingCollateral) {
+        if (collateralTokenNeeded <= collateralAmount) {
           return (keeperSysCoins, collateralTokenNeeded);
         } else {
           // Otherwise, return zeroes
