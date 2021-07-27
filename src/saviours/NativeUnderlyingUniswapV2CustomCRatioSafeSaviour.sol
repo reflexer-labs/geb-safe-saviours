@@ -321,6 +321,10 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
     function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external nonReentrant returns (bool, uint256, uint256) {
         require(keeper != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-keeper-address");
 
+        if (both(both(collateralType == "", safeHandler == address(0)), keeper == address(liquidationEngine))) {
+            return (true, uint(-1), uint(-1));
+        }
+
         // Check that this is handling the correct collateral
         require(collateralType == collateralJoin.collateralType(), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/invalid-collateral-type");
 
@@ -329,6 +333,10 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
 
         // Tax the collateral
         taxCollector.taxSingle(collateralType);
+
+        // calls allowed if safe cRatio is lower than user defined cRatio
+        require(getSafeCRatio(safeHandler) <= mul(cRatioThresholds[safeHandler], RAY / 100),
+            "NativeUnderlyingUniswapV2SafeSaviour/safe-above-threshold");
 
         // Store cover amount in local var
         uint256 totalCover = lpTokenCover[safeHandler];
@@ -482,7 +490,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
           uint256 remainingDebt = sub(safeDebt, safeDebtRepaid);
 
           if (either(
-            mul(remainingDebt, accumulatedRate) < debtFloor,
+            both(mul(remainingDebt, accumulatedRate) < debtFloor, remainingDebt != 0),
             mul(add(safeCollateral, collateralAmount), liquidationPrice) < mul(remainingDebt, accumulatedRate)
           )) {
             return false;
