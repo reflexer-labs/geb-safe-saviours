@@ -475,7 +475,7 @@ contract NativeUnderlyingUniswapV2SafeSaviour is SafeMath, SafeSaviourLike {
         (uint256 keeperSysCoins, uint256 keeperCollateralCoins) =
           getKeeperPayoutTokens(safeHandler, redemptionPrice, safeDebtRepaid, safeCollateralAdded);
 
-        // If there are some tokens used to save the SAFE and some tokens used to repay the keeper, return true
+        // If there are some tokens used to repay the keeper, return true
         if (both(
           either(safeDebtRepaid > 0, safeCollateralAdded > 0),
           either(keeperSysCoins > 0, keeperCollateralCoins > 0)

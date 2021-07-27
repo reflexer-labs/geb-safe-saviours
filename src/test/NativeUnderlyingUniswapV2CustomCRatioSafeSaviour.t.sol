@@ -359,7 +359,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
             address(taxCollector),
             address(oracleRelayer),
             address(safeManager),
-            address(saviourRegistry),
             address(liquidityManager),
             address(raiWETHPair),
             minKeeperPayoutValue
