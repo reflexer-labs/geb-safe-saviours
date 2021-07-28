@@ -330,6 +330,10 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
         // Tax the collateral
         taxCollector.taxSingle(collateralType);
 
+        // calls allowed if safe cRatio is lower than user defined cRatio
+        require(getSafeCRatio(safeHandler) <= mul(cRatioThresholds[safeHandler], RAY / 100),
+            "NativeUnderlyingUniswapV2SafeSaviour/safe-above-threshold");
+
         // Store cover amount in local var
         uint256 totalCover = lpTokenCover[safeHandler];
         delete(lpTokenCover[safeHandler]);
@@ -482,7 +486,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
           uint256 remainingDebt = sub(safeDebt, safeDebtRepaid);
 
           if (either(
-            mul(remainingDebt, accumulatedRate) < debtFloor,
+            both(mul(remainingDebt, accumulatedRate) < debtFloor, remainingDebt != 0),
             mul(add(safeCollateral, collateralAmount), liquidationPrice) < mul(remainingDebt, accumulatedRate)
           )) {
             return false;

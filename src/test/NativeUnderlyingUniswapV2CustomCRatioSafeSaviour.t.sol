@@ -150,15 +150,6 @@ contract FakeUser {
         safeEngine.modifySAFECollateralization(collateralType, safe, collateralSource, debtDst, deltaCollateral, deltaDebt);
     }
 
-    function doProtectSAFE(
-        GebSafeManager manager,
-        uint safe,
-        address liquidationEngine,
-        address saviour
-    ) public {
-        manager.protectSAFE(safe, liquidationEngine, saviour);
-    }
-
     function doDeposit(
         NativeUnderlyingUniswapV2CustomCRatioSafeSaviour saviour,
         DSToken lpToken,
@@ -232,7 +223,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
     GebSafeManager safeManager;
 
     NativeUnderlyingUniswapV2CustomCRatioSafeSaviour saviour;
-    SAFESaviourRegistry saviourRegistry;
 
     MockMedianizer systemCoinOracle;
     MockMedianizer ethFSM;
@@ -348,8 +338,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         liquidityManager = new UniswapV2LiquidityManager(address(raiWETHPair), address(uniswapRouter));
 
         // Saviour infra
-        saviourRegistry = new SAFESaviourRegistry(saveCooldown);
-
         saviour = new NativeUnderlyingUniswapV2CustomCRatioSafeSaviour(
             isSystemCoinToken0,
             address(coinJoin),
@@ -363,8 +351,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
             address(raiWETHPair),
             minKeeperPayoutValue
         );
-        saviourRegistry.toggleSaviour(address(saviour));
-        liquidationEngine.connectSAFESaviour(address(saviour));
 
         me    = address(this);
         alice = new FakeUser();
@@ -408,9 +394,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         address safeHandler = safeManager.safes(safe);
         default_modify_collateralization(safe, safeHandler);
 
-        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
-
         ethMedian.updateCollateralPrice(liquidatableCollateralPrice);
         ethFSM.updateCollateralPrice(liquidatableCollateralPrice);
         oracleRelayer.updateCollateralPrice("eth");
@@ -421,9 +404,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         default_modify_collateralization(safe, safeHandler);
 
         alice.doTransferInternalCoins(safeManager, safe, address(coinJoin), safeEngine.coinBalance(safeHandler));
-        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
         alice.doSetCRatioThreshold(saviour, safe, desiredCRatio);
-        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
 
         ethMedian.updateCollateralPrice(initETHUSDPrice / 30);
         ethFSM.updateCollateralPrice(initETHUSDPrice / 30);
@@ -502,9 +483,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         address safeHandler = safeManager.safes(safe);
         default_modify_collateralization(safe, safeHandler);
 
-        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
-
         // Change oracle price
         ethMedian.updateCollateralPrice(liquidatableCollateralPrice);
         ethFSM.updateCollateralPrice(liquidatableCollateralPrice);
@@ -564,7 +542,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         assertEq(address(saviour.systemCoin()), address(systemCoin));
         assertEq(address(saviour.safeEngine()), address(safeEngine));
         assertEq(address(saviour.safeManager()), address(safeManager));
-        assertEq(address(saviour.saviourRegistry()), address(saviourRegistry));
         assertEq(address(saviour.liquidityManager()), address(liquidityManager));
         assertEq(address(saviour.lpToken()), address(raiWETHPair));
         assertEq(address(saviour.collateralToken()), address(weth));
@@ -580,32 +557,22 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         alice.doModifyParameters(saviour, "minKeeperPayoutValue", 5);
     }
     function test_modify_addresses() public {
+        oracleRelayer = new OracleRelayer(address(safeEngine));
+        systemCoinOracle = new MockMedianizer(initRAIUSDPrice, true);
         saviour.modifyParameters("systemCoinOrcl", address(systemCoinOracle));
         saviour.modifyParameters("oracleRelayer", address(oracleRelayer));
-        saviour.modifyParameters("liquidityManager", address(liquidityManager));
+        saviour.modifyParameters("liquidityManager", address(0xa));
+        saviour.modifyParameters("liquidationEngine", address(0xb));
+        saviour.modifyParameters("taxCollector", address(0xc));
 
-        assertEq(address(saviour.liquidityManager()), address(liquidityManager));
+        assertEq(address(saviour.liquidityManager()), address(0xa));
         assertEq(address(saviour.oracleRelayer()), address(oracleRelayer));
         assertEq(address(saviour.systemCoinOrcl()), address(systemCoinOracle));
+        assertEq(address(saviour.liquidationEngine()), address(0xb));
+        assertEq(address(saviour.taxCollector()), address(0xc));
     }
     function testFail_modify_address_unauthed() public {
         alice.doModifyParameters(saviour, "systemCoinOrcl", address(systemCoinOracle));
-    }
-    function testFail_deposit_liq_engine_not_approved() public {
-        liquidationEngine.disconnectSAFESaviour(address(saviour));
-
-        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-        address safeHandler = safeManager.safes(safe);
-        default_modify_collateralization(safe, safeHandler);
-
-        uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
-        addPairLiquidityRouter(
-          address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
-        );
-        lpTokenAmount = sub(raiWETHPair.balanceOf(address(this)), lpTokenAmount);
-        raiWETHPair.transfer(address(alice), lpTokenAmount);
-
-        alice.doDeposit(saviour, DSToken(address(raiWETHPair)), 1, lpTokenAmount);
     }
     function testFail_deposit_null_lp_token_amount() public {
         uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
@@ -846,9 +813,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         collateralJoin.join(address(safeHandler), defaultTokenAmount);
         alice.doModifySAFECollateralization(safeManager, safe, int(defaultCollateralAmount), int(defaultTokenAmount * 10));
 
-        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
-
         // Change oracle price
         ethMedian.updateCollateralPrice(initETHUSDPrice / 30);
         ethFSM.updateCollateralPrice(initETHUSDPrice / 30);
@@ -876,9 +840,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
         address safeHandler = safeManager.safes(safe);
         default_modify_collateralization(safe, safeHandler);
-
-        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
 
         // Change oracle price
         ethMedian.updateCollateralPrice(initETHUSDPrice / 3);
@@ -915,9 +876,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         collateralJoin.join(address(safeHandler), defaultTokenAmount);
         alice.doModifySAFECollateralization(safeManager, safe, int(defaultCollateralAmount), int(defaultTokenAmount * 10));
 
-        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
-
         // Change oracle price
         ethMedian.updateCollateralPrice(initETHUSDPrice / 30);
         ethFSM.updateCollateralPrice(initETHUSDPrice / 30);
@@ -950,13 +908,11 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
     function testFail_saveSAFE_above_threshold() public {
         uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
         address safeHandler = safeManager.safes(safe);
-        alice.doSetCRatioThreshold(saviour, safe, 151);
-
         default_modify_collateralization(safe, safeHandler);
 
+        alice.doSetCRatioThreshold(saviour, safe, 150);
+
         alice.doTransferInternalCoins(safeManager, safe, address(coinJoin), safeEngine.coinBalance(safeHandler));
-        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
 
         uint256 lpTokenAmount = raiWETHPair.balanceOf(address(this));
         addPairLiquidityRouter(
@@ -985,9 +941,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         alice.doModifySAFECollateralization(safeManager, safe, int(defaultCollateralAmount), int(defaultTokenAmount * 5));
 
         alice.doTransferInternalCoins(safeManager, safe, address(coinJoin), safeEngine.coinBalance(safeHandler));
-        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
         alice.doSetCRatioThreshold(saviour, safe, 150);
-        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
 
         ethMedian.updateCollateralPrice(initETHUSDPrice / 10);
         ethFSM.updateCollateralPrice(initETHUSDPrice / 10);
@@ -1010,10 +964,9 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
         uint256 preSaveWETHKeeperBalance = weth.balanceOf(address(this));
 
-        uint auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
+        saviour.saveSAFE(address(this), "eth", safeHandler);
 
         assertTrue(saviour.underlyingReserves(safeHandler) > 0);
-        assertEq(auction, 0);
         assertTrue(
           systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
           weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
@@ -1028,9 +981,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         address safeHandler = safeManager.safes(safe);
         default_modify_collateralization(safe, safeHandler);
 
-        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetCRatioThreshold(saviour, safe, 150); // setting same as collateral cRatio, liquidationEngine can also save it
-        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+        alice.doSetCRatioThreshold(saviour, safe, 150);
 
         // Change oracle price
         ethMedian.updateCollateralPrice(initETHUSDPrice / 3);
@@ -1056,10 +1007,9 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
         uint256 preSaveWETHKeeperBalance = weth.balanceOf(address(this));
 
-        uint auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
+        saviour.saveSAFE(address(this), "eth", safeHandler);
 
         assertEq(saviour.underlyingReserves(safeHandler), 0);
-        assertEq(auction, 0);
         assertTrue(
           systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
           weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
@@ -1081,9 +1031,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         collateralJoin.join(address(safeHandler), defaultTokenAmount);
         alice.doModifySAFECollateralization(safeManager, safe, int(defaultCollateralAmount), int(defaultTokenAmount * 8));
 
-        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        alice.doSetCRatioThreshold(saviour, safe, 150); // setting same as collateral cRatio, liquidationEngine can also save it
-        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+        alice.doSetCRatioThreshold(saviour, safe, 150);
 
         // Change oracle price
         ethMedian.updateCollateralPrice(initETHUSDPrice / 4);
@@ -1109,10 +1057,9 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
         uint256 preSaveWETHKeeperBalance = weth.balanceOf(address(this));
 
-        uint auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
+        saviour.saveSAFE(address(this), "eth", safeHandler);
 
         assertTrue(saviour.underlyingReserves(safeHandler) == 0);
-        assertEq(auction, 0);
         assertTrue(
           systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
           weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
@@ -1126,7 +1073,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         address safeHandler = safeManager.safes(safe);
         default_save(safe, safeHandler, 150);
 
-        hevm.warp(now + saviourRegistry.saveCooldown() + 1);
         default_second_save(safe, safeHandler, 570);
     }
     function testFail_saveSAFE_withdraw_cover() public {
@@ -1183,8 +1129,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
 
         // adding cover
         alice.doTransferInternalCoins(safeManager, safe, address(coinJoin), safeEngine.coinBalance(safeHandler));
-        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
 
         addPairLiquidityRouter(
           address(systemCoin), address(weth), initRAIETHPairLiquidity * defaultLiquidityMultiplier, initETHRAIPairLiquidity * defaultLiquidityMultiplier
@@ -1251,19 +1195,12 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviourTest is DSTest {
 
         assertEq(systemCoin.balanceOf(address(saviour)), 0);
     }
-    function testFail_save_twice_without_waiting() public {
-        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-        address safeHandler = safeManager.safes(safe);
-        default_save(safe, safeHandler, 155);
-        default_second_save(safe, safeHandler, 155);
-    }
     function test_saveSAFE_get_reserves_twice() public {
         uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
         address safeHandler = safeManager.safes(safe);
         default_save(safe, safeHandler, 155);
         alice.doGetReserves(saviour, safe, address(alice));
 
-        hevm.warp(now + saviourRegistry.saveCooldown() + 1);
         default_second_save(safe, safeHandler, 570);
 
         uint256 oldSysCoinBalance = systemCoin.balanceOf(address(0x1));
