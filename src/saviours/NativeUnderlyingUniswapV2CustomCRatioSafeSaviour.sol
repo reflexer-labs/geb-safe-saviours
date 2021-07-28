@@ -321,10 +321,6 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
     function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external nonReentrant returns (bool, uint256, uint256) {
         require(keeper != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-keeper-address");
 
-        if (both(both(collateralType == "", safeHandler == address(0)), keeper == address(liquidationEngine))) {
-            return (true, uint(-1), uint(-1));
-        }
-
         // Check that this is handling the correct collateral
         require(collateralType == collateralJoin.collateralType(), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/invalid-collateral-type");
 
