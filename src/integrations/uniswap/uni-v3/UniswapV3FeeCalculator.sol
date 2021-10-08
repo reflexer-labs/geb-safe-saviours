@@ -3,8 +3,9 @@ pragma solidity 0.6.7;
 import "../../../interfaces/UniswapV3NonFungiblePositionManagerLike.sol";
 import "../../../interfaces/UniswapV3PoolLike.sol";
 
-import "./FixedPoint128.sol";
-import "./FullMath.sol";
+import "./libs/PositionKey.sol";
+import "./libs/FixedPoint128.sol";
+import "./libs/FullMath.sol";
 
 contract UniswapV3FeeCalculator {
     // --- Variables ---
@@ -41,14 +42,14 @@ contract UniswapV3FeeCalculator {
          ,
        )
         = positionManager.positions(tokenId);
-       IUniswapV3Pool pool = UniswapV3PoolLike(pool);
+       UniswapV3PoolLike uniPool = UniswapV3PoolLike(pool);
 
        if (liquidity > 0) {
           uint256 amount0;
           uint256 amount1;
 
            (, uint256 latestFeeGrowthInside0LastX128, uint256 latestFeeGrowthInside1LastX128, , ) =
-               pool.positions(PositionKey.compute(address(positionManager), tickLower, tickUpper));
+               uniPool.positions(PositionKey.compute(address(positionManager), tickLower, tickUpper));
 
            amount0 = uint256(
                FullMath.mulDiv(

@@ -1,6 +1,9 @@
 pragma solidity 0.6.7;
+pragma experimental ABIEncoderV2;
 
-abstract contract UniswapV3NonFungiblePositionManagerLike {
+import "./IERC721.sol";
+
+abstract contract UniswapV3NonFungiblePositionManagerLike is IERC721 {
     struct CollectParams {
         uint256 tokenId;
         address recipient;
