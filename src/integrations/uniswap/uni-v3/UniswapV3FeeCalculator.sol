@@ -1,4 +1,4 @@
-pragma solidity 0.6.7;
+pragma solidity >=0.6.7;
 
 import "../../../interfaces/UniswapV3NonFungiblePositionManagerLike.sol";
 import "../../../interfaces/UniswapV3PoolLike.sol";

@@ -1,4 +1,4 @@
-pragma solidity 0.6.7;
+pragma solidity >=0.6.7;
 
 import "./interfaces/SaviourCRatioSetterLike.sol";
 import "./math/SafeMath.sol";

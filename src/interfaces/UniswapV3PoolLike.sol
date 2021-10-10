@@ -1,4 +1,4 @@
-pragma solidity 0.6.7;
+pragma solidity >=0.6.7;
 
 abstract contract UniswapV3PoolLike {
     /// @notice The first of the two tokens of the pool, sorted by address

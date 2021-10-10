@@ -1,4 +1,4 @@
-pragma solidity 0.6.7;
+pragma solidity >=0.6.7;
 
 abstract contract CTokenLike {
     function mint(uint256) virtual external returns (uint256);

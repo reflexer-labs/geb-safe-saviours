@@ -13,11 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pragma solidity 0.6.7;
+pragma solidity >=0.6.7;
+pragma experimental ABIEncoderV2;
 
-import "../interfaces/UniswapV3NonFungiblePositionManagerLike.sol";
 import "../interfaces/SaviourCRatioSetterLike.sol";
 import "../interfaces/SafeSaviourLike.sol";
+import "../interfaces/UniswapV3NonFungiblePositionManagerLike.sol";
 
 import "../integrations/uniswap/uni-v3/UniswapV3FeeCalculator.sol";
 import "../integrations/uniswap/uni-v3/libs/PoolAddress.sol";
@@ -146,8 +147,6 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         bool isSystemCoinToken0_,
         address coinJoin_,
         address collateralJoin_,
-        address cRatioSetter_,
-        address systemCoinOrcl_,
         address liquidationEngine_,
         address taxCollector_,
         address oracleRelayer_,
@@ -155,14 +154,11 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         address saviourRegistry_,
         address positionManager_,
         address feeCalculator_,
-        address uniswapFactory_,
         uint24  poolFee_,
         uint256 minKeeperPayoutValue_
     ) public {
         require(coinJoin_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-coin-join");
         require(collateralJoin_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-collateral-join");
-        require(cRatioSetter_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-cratio-setter");
-        require(systemCoinOrcl_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-system-coin-oracle");
         require(oracleRelayer_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-oracle-relayer");
         require(liquidationEngine_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-liquidation-engine");
         require(taxCollector_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-tax-collector");
@@ -170,7 +166,6 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         require(saviourRegistry_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-saviour-registry");
         require(positionManager_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-positions-manager");
         require(feeCalculator_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-fee-calculator");
-        require(uniswapFactory_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-uniswap-factory");
         require(minKeeperPayoutValue_ > 0, "NativeUnderlyingUniswapV3SafeSaviour/invalid-min-payout-value");
         require(poolFee_ > 0, "NativeUnderlyingUniswapV3SafeSaviour/null-pool-fee");
 
@@ -182,11 +177,9 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
         coinJoin             = CoinJoinLike(coinJoin_);
         collateralJoin       = CollateralJoinLike(collateralJoin_);
-        cRatioSetter         = SaviourCRatioSetterLike(cRatioSetter_);
         liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
         taxCollector         = TaxCollectorLike(taxCollector_);
         oracleRelayer        = OracleRelayerLike(oracleRelayer_);
-        systemCoinOrcl       = PriceFeedLike(systemCoinOrcl_);
         systemCoin           = ERC20Like(coinJoin.systemCoin());
         safeEngine           = SAFEEngineLike(coinJoin.safeEngine());
         safeManager          = GebSafeManagerLike(safeManager_);
@@ -195,7 +188,6 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         positionManager      = UniswapV3NonFungiblePositionManagerLike(positionManager_);
         collateralToken      = ERC20Like(collateralJoin.collateral());
 
-        systemCoinOrcl.getResultWithValidity();
         oracleRelayer.redemptionPrice();
 
         // Avoid stack too deep
@@ -204,7 +196,7 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
             (address(systemCoin), address(collateralToken)) : (address(collateralToken), address(systemCoin));
 
           PoolAddress.PoolKey memory key = PoolAddress.PoolKey(token0, token1, poolFee);
-          targetUniswapPool              = PoolAddress.computeAddress(uniswapFactory_, key);
+          targetUniswapPool              = PoolAddress.computeAddress(positionManager.factory(), key);
         }
 
         require(targetUniswapPool != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-target-pool");
@@ -217,7 +209,6 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         emit ModifyParameters("minKeeperPayoutValue", minKeeperPayoutValue);
         emit ModifyParameters("oracleRelayer", oracleRelayer_);
         emit ModifyParameters("taxCollector", taxCollector_);
-        emit ModifyParameters("systemCoinOrcl", systemCoinOrcl_);
         emit ModifyParameters("liquidationEngine", liquidationEngine_);
         emit ModifyParameters("positionManager", positionManager_);
     }
@@ -560,11 +551,91 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     function keeperPayoutExceedsMinValue() override public returns (bool) {
         return false;
     }
+    /**
+     * @notice Return the total amount of tokens and fees that can be withdrawn from the current NFTS protecting a SAFE
+     * @param safeHandler The safe handler associated with the SAFE for which we get the total withdrawn tokens
+     */
+    function getTotalWithdrawnTokens(address safeHandler)
+      public view returns (uint256 totalSystemCoinsWithdrawn, uint256 totalCollateralTokensWithdrawn) {
+        // Get current sys coin balance
+        uint256 sysCoinBalance = systemCoin.balanceOf(address(this));
+
+        if (lpTokenCover[safeHandler].secondId != 0) {
+          (uint256 amount0Fees, uint256 amount1Fees) =
+            feeCalculator.getUncollectedFees(targetUniswapPool, lpTokenCover[safeHandler].secondId);
+
+          ( ,,,,,,,,,,
+            uint128 tokensOwed0,
+            uint128 tokensOwed1
+          ) = positionManager.positions(lpTokenCover[safeHandler].secondId);
+
+          if (isSystemCoinToken0) {
+            totalSystemCoinsWithdrawn      = add(totalSystemCoinsWithdrawn, add(amount0Fees, uint256(tokensOwed0)));
+            totalCollateralTokensWithdrawn = add(totalCollateralTokensWithdrawn, add(amount1Fees, uint256(tokensOwed1)));
+          } else {
+            totalSystemCoinsWithdrawn      = add(totalSystemCoinsWithdrawn, add(amount1Fees, uint256(tokensOwed1)));
+            totalCollateralTokensWithdrawn = add(totalCollateralTokensWithdrawn, add(amount0Fees, uint256(tokensOwed0)));
+          }
+        }
+
+        {
+          (uint256 amount0Fees, uint256 amount1Fees) =
+            feeCalculator.getUncollectedFees(targetUniswapPool, lpTokenCover[safeHandler].firstId);
+
+          ( ,,,,,,,,,,
+            uint128 tokensOwed0,
+            uint128 tokensOwed1
+          ) = positionManager.positions(lpTokenCover[safeHandler].firstId);
+
+          if (isSystemCoinToken0) {
+            totalSystemCoinsWithdrawn      = add(totalSystemCoinsWithdrawn, add(amount0Fees, uint256(tokensOwed0)));
+            totalCollateralTokensWithdrawn = add(totalCollateralTokensWithdrawn, add(amount1Fees, uint256(tokensOwed1)));
+          } else {
+            totalSystemCoinsWithdrawn      = add(totalSystemCoinsWithdrawn, add(amount1Fees, uint256(tokensOwed1)));
+            totalCollateralTokensWithdrawn = add(totalCollateralTokensWithdrawn, add(amount0Fees, uint256(tokensOwed0)));
+          }
+        }
+    }
     /*
-    * @notify Must be implemented according to the interface although it always returns false
+    * @notify Returns whether a SAFE can be currently saved
+    * @param safeHandler The safe handler associated with the SAFE
     */
     function canSave(bytes32, address safeHandler) override external returns (bool) {
-        // return false;
+        // Check that the SAFE has a non null amount of NFT tokens covering it
+        if (lpTokenCover[safeHandler].firstId != 0) {
+          return false;
+        }
+
+        // See how many tokens can be withdrawn from the NFTs + take into account fees
+        (uint256 totalSystemCoinsWithdrawn, uint256 totalCollateralTokensWithdrawn) =
+          getTotalWithdrawnTokens(safeHandler);
+
+        // Calculate keeper fees and amount of tokens used to save the SAFE
+        (uint256 keeperSysCoins, uint256 keeperCollateralCoins) =
+          getKeeperPayoutTokens(
+            safeHandler,
+            oracleRelayer.redemptionPrice(),
+            totalSystemCoinsWithdrawn,
+            totalCollateralTokensWithdrawn
+          );
+
+        (uint256 safeDebtRepaid, uint256 safeCollateralAdded) =
+          getTokensForSaving(
+            safeHandler,
+            oracleRelayer.redemptionPrice(),
+            sub(totalSystemCoinsWithdrawn, keeperSysCoins),
+            sub(totalCollateralTokensWithdrawn, keeperCollateralCoins)
+          );
+
+        // If there are some tokens used to repay the keeper, return true
+        if (both(
+          either(safeDebtRepaid > 0, safeCollateralAdded > 0),
+          either(keeperSysCoins > 0, keeperCollateralCoins > 0)
+        )) {
+          return true;
+        }
+
+        return false;
     }
     /*
     * @notice Return the total amount of NFT tokens used to save a SAFE

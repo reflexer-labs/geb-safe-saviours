@@ -1,4 +1,4 @@
-pragma solidity 0.6.7;
+pragma solidity >=0.6.7;
 
 abstract contract CoinJoinLike {
     function systemCoin() virtual public view returns (address);

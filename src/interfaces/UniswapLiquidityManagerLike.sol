@@ -1,4 +1,4 @@
-pragma solidity 0.6.7;
+pragma solidity >=0.6.7;
 
 abstract contract UniswapLiquidityManagerLike {
     function getToken0FromLiquidity(uint256) virtual public view returns (uint256);

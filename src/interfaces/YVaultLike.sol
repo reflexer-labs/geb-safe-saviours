@@ -1,4 +1,4 @@
-pragma solidity 0.6.7;
+pragma solidity >=0.6.7;
 
 abstract contract YVaultLike {
     function deposit(uint256) virtual external returns (uint256);

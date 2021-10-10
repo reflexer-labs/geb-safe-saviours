@@ -1,4 +1,5 @@
-pragma solidity 0.6.7;
+pragma solidity >=0.6.7;
+pragma experimental ABIEncoderV2;
 
 import "./IERC721.sol";
 
@@ -17,6 +18,7 @@ abstract contract UniswapV3NonFungiblePositionManagerLike is IERC721 {
         uint256 deadline;
     }
 
+    function factory() public virtual view returns (address);
     function positions(uint256 tokenId)
         external
         view

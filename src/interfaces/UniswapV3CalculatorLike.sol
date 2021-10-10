@@ -1,4 +1,4 @@
-pragma solidity 0.6.7;
+pragma solidity >=0.6.7;
 
 abstract contract UniswapV3CalculatorLike {
     function positionManager() public virtual view returns (address);

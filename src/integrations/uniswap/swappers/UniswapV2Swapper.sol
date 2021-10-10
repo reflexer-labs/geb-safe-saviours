@@ -1,4 +1,4 @@
-pragma solidity 0.6.7;
+pragma solidity >=0.6.7;
 
 import "../uni-v2/interfaces/IUniswapV2Router02.sol";
 import "../uni-v2/interfaces/IUniswapV2Factory.sol";
