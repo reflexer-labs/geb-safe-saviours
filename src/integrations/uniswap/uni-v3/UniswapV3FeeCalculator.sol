@@ -40,8 +40,7 @@ contract UniswapV3FeeCalculator {
          uint256 oldFeeGrowthInside0LastX128,
          uint256 oldFeeGrowthInside1LastX128,
          ,
-       )
-        = positionManager.positions(tokenId);
+       ) = positionManager.positions(tokenId);
        UniswapV3PoolLike uniPool = UniswapV3PoolLike(pool);
 
        if (liquidity > 0) {
