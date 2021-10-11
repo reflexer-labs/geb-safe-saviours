@@ -16,7 +16,6 @@
 pragma solidity >=0.6.7;
 pragma experimental ABIEncoderV2;
 
-import "../interfaces/SaviourCRatioSetterLike.sol";
 import "../interfaces/SafeSaviourLike.sol";
 import "../interfaces/UniswapV3NonFungiblePositionManagerLike.sol";
 
@@ -375,7 +374,7 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     * @param keeper The keeper that called LiquidationEngine.liquidateSAFE and that should be rewarded for spending gas to save a SAFE
     * @param collateralType The collateral type backing the SAFE that's being liquidated
     * @param safeHandler The handler of the SAFE that's being liquidated
-    * @return Whether the SAFE has been saved, the amount of LP tokens that were used to withdraw liquidity as well as the amount of
+    * @return Whether the SAFE has been saved, the amount of NFT tokens that were used to withdraw liquidity as well as the amount of
     *         system coins sent to the keeper as their payment (this implementation always returns 0)
     */
     function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external returns (bool, uint256, uint256) {

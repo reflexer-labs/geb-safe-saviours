@@ -14,19 +14,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pragma solidity >=0.6.7;
-pragma experimental ABIEncoderV2;
 
-import "../interfaces/SaviourCRatioSetterLike.sol";
 import "../interfaces/SafeSaviourLike.sol";
+import "../interfaces/CurveV1PoolLike.sol";
 import "../interfaces/ERC20Like.sol";
-import "../interfaces/UniswapV3NonFungiblePositionManagerLike.sol";
-
-import "../integrations/uniswap/uni-v3/UniswapV3FeeCalculator.sol";
-import "../integrations/uniswap/uni-v3/libs/PoolAddress.sol";
 
 import "../math/SafeMath.sol";
 
-contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
+contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
     // --- Auth ---
     mapping (address => uint256) public authorizedAccounts;
     /**
@@ -49,7 +44,7 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     * @notice Checks whether msg.sender can call an authed function
     **/
     modifier isAuthorized {
-        require(authorizedAccounts[msg.sender] == 1, "GeneralUnderlyingUniswapV3SafeSaviour/account-not-authorized");
+        require(authorizedAccounts[msg.sender] == 1, "CurveV1SafeSaviour/account-not-authorized");
         _;
     }
 
@@ -76,36 +71,43 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     modifier isAllowed {
         require(
           either(restrictUsage == 0, both(restrictUsage == 1, allowedUsers[msg.sender] == 1)),
-          "GeneralUnderlyingUniswapV3SafeSaviour/account-not-allowed"
+          "CurveV1SafeSaviour/account-not-allowed"
         );
         _;
     }
 
     // --- Structs ---
-    struct NFTCollateral {
-        uint256 firstId;
-        uint256 secondId;
+    struct Reserves {
+        uint256 systemCoins;
+        uint256 collateralCoins;
     }
 
     // --- Variables ---
     // Flag that tells whether usage of the contract is restricted to allowed users
     uint256                                         public restrictUsage;
 
-    // NFTs used to back safes
-    mapping(address => NFTCollateral)               public lpTokenCover;
-    // Amount of tokens that were not used to save SAFEs
+    // Array used to store amounts of tokens removed from Curve when a SAFE is saved
+    uint256[]                                       public removedCoinLiquidity;
+    // Default array of min tokens to withdraw
+    uint256[]                                       public defaultMinTokensToWithdraw;
+    // Array of tokens in the Curve pool
+    address[]                                       public poolTokens;
+
+    // Amount of LP tokens currently protecting each position
+    mapping(address => uint256)                     public lpTokenCover;
+    // Amount of tokens that weren't used to save SAFEs and Safe owners can now get back
     mapping(address => mapping(address => uint256)) public underlyingReserves;
 
-    // NFT position manager for Uniswap v3
-    UniswapV3NonFungiblePositionManagerLike         public positionManager;
-    // Uniswap fee calculator for each position
-    UniswapV3FeeCalculator                          public feeCalculator;
+    // Curve pool
+    CurveV1PoolLike                                 public curvePool;
     // The ERC20 system coin
     ERC20Like                                       public systemCoin;
     // The system coin join contract
     CoinJoinLike                                    public coinJoin;
     // The collateral join contract for adding collateral in the system
     CollateralJoinLike                              public collateralJoin;
+    // The Curve LP token
+    ERC20Like                                       public lpToken;
     // Oracle providing the system coin price feed
     PriceFeedLike                                   public systemCoinOrcl;
 
@@ -119,13 +121,13 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     event Deposit(
       address indexed caller,
       address indexed safeHandler,
-      uint256 nftId
+      uint256 lpTokenAmount
     );
     event Withdraw(
       address indexed caller,
       address indexed safeHandler,
       address dst,
-      uint256 nftId
+      uint256 lpTokenAmount
     );
     event GetReserves(
       address indexed caller,
@@ -138,25 +140,25 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     constructor(
         address coinJoin_,
         address collateralJoin_,
+        address systemCoinOrcl_,
         address liquidationEngine_,
         address taxCollector_,
         address oracleRelayer_,
         address safeManager_,
         address saviourRegistry_,
-        address positionManager_,
-        address feeCalculator_,
+        address curvePool_,
         uint256 minKeeperPayoutValue_
     ) public {
-        require(coinJoin_ != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-coin-join");
-        require(collateralJoin_ != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-collateral-join");
-        require(oracleRelayer_ != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-oracle-relayer");
-        require(liquidationEngine_ != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-liquidation-engine");
-        require(taxCollector_ != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-tax-collector");
-        require(safeManager_ != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-safe-manager");
-        require(saviourRegistry_ != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-saviour-registry");
-        require(positionManager_ != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-positions-manager");
-        require(feeCalculator_ != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-fee-calculator");
-        require(minKeeperPayoutValue_ > 0, "GeneralUnderlyingUniswapV3SafeSaviour/invalid-min-payout-value");
+        require(coinJoin_ != address(0), "CurveV1SafeSaviour/null-coin-join");
+        require(collateralJoin_ != address(0), "CurveV1SafeSaviour/null-collateral-join");
+        require(systemCoinOrcl_ != address(0), "CurveV1SafeSaviour/null-system-coin-oracle");
+        require(oracleRelayer_ != address(0), "CurveV1SafeSaviour/null-oracle-relayer");
+        require(liquidationEngine_ != address(0), "CurveV1SafeSaviour/null-liquidation-engine");
+        require(taxCollector_ != address(0), "CurveV1SafeSaviour/null-tax-collector");
+        require(safeManager_ != address(0), "CurveV1SafeSaviour/null-safe-manager");
+        require(saviourRegistry_ != address(0), "CurveV1SafeSaviour/null-saviour-registry");
+        require(curvePool_ != address(0), "CurveV1SafeSaviour/null-curve-pool");
+        require(minKeeperPayoutValue_ > 0, "CurveV1SafeSaviour/invalid-min-payout-value");
 
         authorizedAccounts[msg.sender] = 1;
 
@@ -167,24 +169,38 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
         taxCollector         = TaxCollectorLike(taxCollector_);
         oracleRelayer        = OracleRelayerLike(oracleRelayer_);
+        systemCoinOrcl       = PriceFeedLike(systemCoinOrcl_);
         systemCoin           = ERC20Like(coinJoin.systemCoin());
         safeEngine           = SAFEEngineLike(coinJoin.safeEngine());
         safeManager          = GebSafeManagerLike(safeManager_);
         saviourRegistry      = SAFESaviourRegistryLike(saviourRegistry_);
-        feeCalculator        = UniswapV3FeeCalculator(feeCalculator_);
-        positionManager      = UniswapV3NonFungiblePositionManagerLike(positionManager_);
+        curvePool            = CurveV1PoolLike(curvePool_);
+        lpToken              = ERC20Like(curvePool.lp_token());
 
+        systemCoinOrcl.getResultWithValidity();
         oracleRelayer.redemptionPrice();
 
-        require(address(safeEngine) != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-safe-engine");
-        require(address(systemCoin) != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-sys-coin");
+        require(collateralJoin.contractEnabled() == 1, "CurveV1SafeSaviour/join-disabled");
+        require(curvePool.redemption_price_snap() != address(0), "CurveV1SafeSaviour/null-curve-red-price-snap");
+        require(address(lpToken) != address(0), "CurveV1SafeSaviour/null-curve-lp-token");
+        require(address(safeEngine) != address(0), "CurveV1SafeSaviour/null-safe-engine");
+        require(address(systemCoin) != address(0), "CurveV1SafeSaviour/null-sys-coin");
+        require(!curvePool.is_killed(), "CurveV1SafeSaviour/pool-killed");
+
+        address[] memory coins = curvePool.coins();
+        require(coins.length > 1, "CurveV1SafeSaviour/no-pool-coins");
+
+        for (uint i = 0; i < coins.length; i++) {
+          defaultMinTokensToWithdraw.push(0);
+          poolTokens.push(coins[i]);
+        }
 
         emit AddAuthorization(msg.sender);
         emit ModifyParameters("minKeeperPayoutValue", minKeeperPayoutValue);
         emit ModifyParameters("oracleRelayer", oracleRelayer_);
         emit ModifyParameters("taxCollector", taxCollector_);
+        emit ModifyParameters("systemCoinOrcl", systemCoinOrcl_);
         emit ModifyParameters("liquidationEngine", liquidationEngine_);
-        emit ModifyParameters("positionManager", positionManager_);
     }
 
     // --- Math ---
@@ -200,14 +216,14 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
      */
     function modifyParameters(bytes32 parameter, uint256 val) external isAuthorized {
         if (parameter == "minKeeperPayoutValue") {
-            require(val > 0, "GeneralUnderlyingUniswapV3SafeSaviour/null-min-payout");
+            require(val > 0, "CurveV1SafeSaviour/null-min-payout");
             minKeeperPayoutValue = val;
         }
         else if (parameter == "restrictUsage") {
-            require(val <= 1, "GeneralUnderlyingUniswapV3SafeSaviour/invalid-restriction");
+            require(val <= 1, "CurveV1SafeSaviour/invalid-restriction");
             restrictUsage = val;
         }
-        else revert("GeneralUnderlyingUniswapV3SafeSaviour/modify-unrecognized-param");
+        else revert("CurveV1SafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, val);
     }
     /**
@@ -216,7 +232,7 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
      * @param data New address for the parameter
      */
     function modifyParameters(bytes32 parameter, address data) external isAuthorized {
-        require(data != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-data");
+        require(data != address(0), "CurveV1SafeSaviour/null-data");
 
         if (parameter == "systemCoinOrcl") {
             systemCoinOrcl = PriceFeedLike(data);
@@ -232,16 +248,13 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         else if (parameter == "taxCollector") {
             taxCollector = TaxCollectorLike(data);
         }
-        else if (parameter == "feeCalculator") {
-            feeCalculator = UniswapV3FeeCalculator(data);
-        }
-        else revert("GeneralUnderlyingUniswapV3SafeSaviour/modify-unrecognized-param");
+        else revert("CurveV1SafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, data);
     }
 
     // --- Transferring Reserves ---
     /*
-    * @notify Get back tokens that were withdrawn from Uniswap and not used to save a specific SAFE
+    * @notify Get back tokens that were withdrawn from Curve and not used to save a specific SAFE
     * @param safeID The ID of the safe that was previously saved and has leftover funds that can be withdrawn
     * @param token The address of the token being transferred
     * @param dst The address that will receive the reserve system coins
@@ -250,7 +263,7 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         address safeHandler = safeManager.safes(safeID);
         uint256 reserve     = underlyingReserves[safeHandler][token];
 
-        require(reserve > 0, "GeneralUnderlyingUniswapV3SafeSaviour/no-reserves");
+        require(reserve > 0, "CurveV1SafeSaviour/no-reserves");
         delete(underlyingReserves[safeHandler][token]);
 
         ERC20Like(token).transfer(dst, reserve);
@@ -260,84 +273,49 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
     // --- Adding/Withdrawing Cover ---
     /*
-    * @notice Deposit a NFT position in the contract in order to provide cover for a specific SAFE managed by the SAFE Manager
+    * @notice Deposit lpToken in the contract in order to provide cover for a specific SAFE managed by the SAFE Manager
     * @param safeID The ID of the SAFE to protect. This ID should be registered inside GebSafeManager
-    * @param tokenId The ID of the NFTed position
+    * @param lpTokenAmount The amount of lpToken to deposit
     */
-    function deposit(uint256 safeID, uint256 tokenId) external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
-        address safeHandler = safeManager.safes(safeID);
-        require(
-          either(lpTokenCover[safeHandler].firstId == 0, lpTokenCover[safeHandler].secondId == 0),
-          "GeneralUnderlyingUniswapV3SafeSaviour/cannot-add-more-positions"
-        );
-
-        // Fetch position details
-        ( ,
-          ,
-          address token0_,
-          address token1_,
-          ,,,,,,,
-        ) = positionManager.positions(tokenId);
-
-        // Position checks
-        require(token0_ != token1_, "GeneralUnderlyingUniswapV3SafeSaviour/same-tokens");
-        require(
-          either(address(systemCoin) == token0_, address(systemCoin) == token1_),
-          "GeneralUnderlyingUniswapV3SafeSaviour/not-sys-coin-pool"
-        );
+    function deposit(uint256 safeID, uint256 lpTokenAmount)
+      external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
+        require(!curvePool.is_killed(), "CurveV1SafeSaviour/pool-killed");
+        require(lpTokenAmount > 0, "CurveV1SafeSaviour/null-lp-amount");
 
         // Check that the SAFE exists inside GebSafeManager
-        require(safeHandler != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-handler");
+        address safeHandler = safeManager.safes(safeID);
+        require(safeHandler != address(0), "CurveV1SafeSaviour/null-handler");
 
         // Check that the SAFE has debt
         (, uint256 safeDebt) =
           SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
-        require(safeDebt > 0, "GeneralUnderlyingUniswapV3SafeSaviour/safe-does-not-have-debt");
+        require(safeDebt > 0, "CurveV1SafeSaviour/safe-does-not-have-debt");
 
-        // Update the NFT positions used to cover the SAFE and transfer the NFT to this contract
-        if (lpTokenCover[safeHandler].firstId == 0) {
-          lpTokenCover[safeHandler].firstId = tokenId;
-        } else {
-          lpTokenCover[safeHandler].secondId = tokenId;
-        }
+        // Update the lpToken balance used to cover the SAFE and transfer tokens to this contract
+        lpTokenCover[safeHandler] = add(lpTokenCover[safeHandler], lpTokenAmount);
+        require(lpToken.transferFrom(msg.sender, address(this), lpTokenAmount), "CurveV1SafeSaviour/could-not-transfer-lp");
 
-        positionManager.transferFrom(msg.sender, address(this), tokenId);
-        require(
-          positionManager.ownerOf(tokenId) == address(this),
-          "GeneralUnderlyingUniswapV3SafeSaviour/cannot-transfer-position"
-        );
-
-        emit Deposit(msg.sender, safeHandler, tokenId);
+        emit Deposit(msg.sender, safeHandler, lpTokenAmount);
     }
     /*
     * @notice Withdraw lpToken from the contract and provide less cover for a SAFE
     * @dev Only an address that controls the SAFE inside the SAFE Manager can call this
     * @param safeID The ID of the SAFE to remove cover from. This ID should be registered inside the SAFE Manager
-    * @param tokenId The ID of the NFTed position to withdraw
+    * @param lpTokenAmount The amount of lpToken to withdraw
     * @param dst The address that will receive the LP tokens
     */
-    function withdraw(uint256 safeID, uint256 tokenId, address dst) external controlsSAFE(msg.sender, safeID) nonReentrant {
+    function withdraw(uint256 safeID, uint256 lpTokenAmount, address dst) external controlsSAFE(msg.sender, safeID) nonReentrant {
+        require(lpTokenAmount > 0, "CurveV1SafeSaviour/null-lp-amount");
+
+        // Fetch the handler from the SAFE manager
         address safeHandler = safeManager.safes(safeID);
+        require(lpTokenCover[safeHandler] >= lpTokenAmount, "CurveV1SafeSaviour/not-enough-to-withdraw");
 
-        require(
-          positionManager.ownerOf(tokenId) == address(this),
-          "GeneralUnderlyingUniswapV3SafeSaviour/position-not-in-contract"
-        );
-        require(
-          either(lpTokenCover[safeHandler].firstId == tokenId, lpTokenCover[safeHandler].secondId == tokenId),
-          "GeneralUnderlyingUniswapV3SafeSaviour/cannot-add-more-positions"
-        );
+        // Withdraw cover and transfer collateralToken to the caller
+        lpTokenCover[safeHandler] = sub(lpTokenCover[safeHandler], lpTokenAmount);
+        lpToken.transfer(dst, lpTokenAmount);
 
-        // Update NFT entries
-        if (lpTokenCover[safeHandler].firstId == tokenId) {
-          lpTokenCover[safeHandler].firstId  = lpTokenCover[safeHandler].secondId;
-        }
-        lpTokenCover[safeHandler].secondId = 0;
-
-        // Transfer NFT to the caller
-        positionManager.transferFrom(address(this), dst, tokenId);
-
-        emit Withdraw(msg.sender, safeHandler, dst, tokenId);
+        emit Withdraw(msg.sender, safeHandler, dst, lpTokenAmount);
     }
 
     // --- Saving Logic ---
@@ -347,61 +325,42 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     * @param keeper The keeper that called LiquidationEngine.liquidateSAFE and that should be rewarded for spending gas to save a SAFE
     * @param collateralType The collateral type backing the SAFE that's being liquidated
     * @param safeHandler The handler of the SAFE that's being liquidated
-    * @return Whether the SAFE has been saved, the amount of NTF tokens that were used to withdraw liquidity as well as the amount of
+    * @return Whether the SAFE has been saved, the amount of LP tokens that were used to withdraw liquidity as well as the amount of
     *         system coins sent to the keeper as their payment (this implementation always returns 0)
     */
     function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external returns (bool, uint256, uint256) {
-        require(address(liquidationEngine) == msg.sender, "GeneralUnderlyingUniswapV3SafeSaviour/caller-not-liquidation-engine");
-        require(keeper != address(0), "GeneralUnderlyingUniswapV3SafeSaviour/null-keeper-address");
+        require(address(liquidationEngine) == msg.sender, "CurveV1SafeSaviour/caller-not-liquidation-engine");
+        require(keeper != address(0), "CurveV1SafeSaviour/null-keeper-address");
 
         if (both(both(collateralType == "", safeHandler == address(0)), keeper == address(liquidationEngine))) {
             return (true, uint(-1), uint(-1));
         }
 
-        // Check that the SAFE has a non null amount of NFT tokens covering it
-        require(
-          lpTokenCover[safeHandler].firstId != 0,
-          "GeneralUnderlyingUniswapV3SafeSaviour/no-cover"
-        );
+        // Check that the SAFE has a non null amount of LP tokens covering it
+        require(lpTokenCover[safeHandler] > 0, "CurveV1SafeSaviour/null-cover");
 
-        // Get current sys coin balance
-        uint256 sysCoinBalance = systemCoin.balanceOf(address(this));
+        // Tax the collateral
+        taxCollector.taxSingle(collateralType);
 
         // Mark the SAFE in the registry as just having been saved
         saviourRegistry.markSave(collateralType, safeHandler);
 
-        // Store cover amount in local var
-        uint256 totalCover;
-        if (lpTokenCover[safeHandler].secondId != 0) {
-          totalCover = 2;
-        } else {
-          totalCover = 1;
-        }
+        // Remove all liquidity from Curve
+        uint256 totalCover = lpTokenCover[safeHandler];
+        removeLiquidity(safeHandler);
 
-        // Withdraw all liquidity
-        if (lpTokenCover[safeHandler].secondId != 0) {
-          (address nonSysCoinToken, uint256 nonSysCoinBalance) =
-            removeLiquidity(lpTokenCover[safeHandler].secondId, safeHandler);
+        // Record tokens that are not system coins and put them in reserves
+        uint256 sysCoinBalance;
 
-          if (nonSysCoinBalance > 0) {
-            underlyingReserves[safeHandler][nonSysCoinToken] = add(
-              underlyingReserves[safeHandler][nonSysCoinToken], nonSysCoinBalance
+        for (uint i = 0; i < removedCoinLiquidity.length; i++) {
+          if (both(poolTokens[i] != address(systemCoin), removedCoinLiquidity[i] > 0)) {
+            underlyingReserves[safeHandler][poolTokens[i]] = add(
+              underlyingReserves[safeHandler][poolTokens[i]], removedCoinLiquidity[i]
             );
+          } else {
+            sysCoinBalance = removedCoinLiquidity[i];
           }
         }
-        {
-          (address nonSysCoinToken, uint256 nonSysCoinBalance) =
-            removeLiquidity(lpTokenCover[safeHandler].firstId, safeHandler);
-
-          if (nonSysCoinBalance > 0) {
-            underlyingReserves[safeHandler][nonSysCoinToken] = add(
-              underlyingReserves[safeHandler][nonSysCoinToken], nonSysCoinBalance
-            );
-          }
-        }
-
-        // Get amount of sys coins withdrawn
-        sysCoinBalance = sub(systemCoin.balanceOf(address(this)), sysCoinBalance);
 
         // Get the amounts of tokens sent to the keeper as payment
         uint256 keeperSysCoins =
@@ -412,7 +371,7 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
           );
 
         // There must be tokens that go to the keeper
-        require(keeperSysCoins > 0, "GeneralUnderlyingUniswapV3SafeSaviour/cannot-pay-keeper");
+        require(keeperSysCoins > 0, "CurveV1SafeSaviour/cannot-pay-keeper");
 
         // Get the amount of tokens used to top up the SAFE
         uint256 safeDebtRepaid =
@@ -423,7 +382,7 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
           );
 
         // There must be tokens used to save the SAVE
-        require(safeDebtRepaid > 0, "GeneralUnderlyingUniswapV3SafeSaviour/cannot-save-safe");
+        require(safeDebtRepaid > 0, "CurveV1SafeSaviour/cannot-save-safe");
 
         // Compute remaining balances of tokens that will go into reserves
         sysCoinBalance = sub(sysCoinBalance, add(safeDebtRepaid, keeperSysCoins));
@@ -466,51 +425,26 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
     // --- Internal Logic ---
     /**
-     * @notice Remove all liquidity from the positions covering a specific SAFE and
-     *         return the address and amount of the non system coin token
-     * @param tokenId The ID of the position from which we withdraw liquidity
-     * @param safeHandler The handler of the SAFE for which we withdraw Uniswap liquidity
+     * @notice Remove all Curve liquidity protecting a specific SAFE and return the amounts of all returned tokens
+     * @param safeHandler The handler of the SAFE for which we withdraw Curve liquidity
      */
-    function removeLiquidity(uint256 tokenId, address safeHandler) internal returns (address, uint256) {
-        // Check which token is not the system coin and fetch the current balance
-        ( ,
-          ,
-          address token0_,
-          address token1_,
-          ,,,,,,,
-        ) = positionManager.positions(tokenId);
-        ERC20Like nonSystemCoin               = (token0_ == address(systemCoin)) ? ERC20Like(token1_) : ERC20Like(token0_);
-        uint256   currentNonSystemCoinBalance = nonSystemCoin.balanceOf(address(this));
+    function removeLiquidity(address safeHandler) internal {
+        // Wipe storage
+        delete(removedCoinLiquidity);
+        require(removedCoinLiquidity.length == 0, "CurveV1SafeSaviour/cannot-wipe-storage");
 
-        // Collect fees first
-        UniswapV3NonFungiblePositionManagerLike.CollectParams memory collectParams =
-          UniswapV3NonFungiblePositionManagerLike.CollectParams(
-            tokenId, address(this), uint128(-1), uint128(-1)
-        );
+        for (uint i = 0; i < poolTokens.length; i++) {
+          removedCoinLiquidity.push(ERC20Like(poolTokens[i]).balanceOf(address(this)));
+        }
 
-        positionManager.collect(collectParams);
+        uint256 totalCover = lpTokenCover[safeHandler];
+        delete(lpTokenCover[safeHandler]);
 
-        // Withdraw liquidity next
-        ( ,,,,,,,
-          uint128 liquidity,
-          ,,,
-        ) = positionManager.positions(tokenId);
+        curvePool.remove_liquidity(totalCover, defaultMinTokensToWithdraw);
 
-        UniswapV3NonFungiblePositionManagerLike.DecreaseLiquidityParams memory decreaseParams =
-          UniswapV3NonFungiblePositionManagerLike.DecreaseLiquidityParams(
-            tokenId, liquidity, 0, 0, block.timestamp
-        );
-
-        positionManager.decreaseLiquidity(decreaseParams);
-
-        // Checks
-        ( ,,,,,,,
-          liquidity,
-          ,,,
-        ) = positionManager.positions(tokenId);
-        require(liquidity == 0, "GeneralUnderlyingUniswapV3SafeSaviour/invalid-liquidity-decrease");
-
-        return (address(nonSystemCoin), sub(nonSystemCoin.balanceOf(address(this)), currentNonSystemCoinBalance));
+        for (uint i = 0; i < poolTokens.length; i++) {
+          removedCoinLiquidity[i] = sub(ERC20Like(poolTokens[i]).balanceOf(address(this)), removedCoinLiquidity[i]);
+        }
     }
 
     // --- Getters ---
@@ -534,17 +468,13 @@ contract GeneralUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         return false;
     }
     /*
-    * @notice Return the total amount of NFT tokens used to save a SAFE
+    * @notice Return the total amount of LP tokens used to save a specific SAFE
     * @param collateralType The SAFE collateral type (ignored in this implementation)
     * @param safeHandler The handler of the SAFE which the function takes into account
-    * @return The amount of NFT tokens used to save a SAFE
+    * @return The amount of LP tokens used to save a SAFE
     */
     function tokenAmountUsedToSave(bytes32, address safeHandler) override public returns (uint256) {
-        if (lpTokenCover[safeHandler].secondId != 0) {
-          return 2;
-        } else {
-          return 1;
-        }
+        return lpTokenCover[safeHandler];
     }
     /*
     * @notify Fetch the system coin's market price

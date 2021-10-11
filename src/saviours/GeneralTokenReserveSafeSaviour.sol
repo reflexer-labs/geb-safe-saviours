@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Reflexer Labs, INC
+// Copyright (C) 2021 Reflexer Labs, INC
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -80,6 +80,7 @@ contract GeneralTokenReserveSafeSaviour is SafeMath, SafeSaviourLike {
 
     // Amount of collateral deposited to cover each SAFE
     mapping(address => uint256) public collateralTokenCover;
+    
     // The collateral join contract for adding collateral in the system
     CollateralJoinLike          public collateralJoin;
     // The collateral token
