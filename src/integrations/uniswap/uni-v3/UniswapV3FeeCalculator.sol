@@ -1,11 +1,31 @@
 pragma solidity >=0.6.7;
 
-import "../../../interfaces/UniswapV3NonFungiblePositionManagerLike.sol";
 import "../../../interfaces/UniswapV3PoolLike.sol";
 
 import "./libs/PositionKey.sol";
 import "./libs/FixedPoint128.sol";
 import "./libs/FullMath.sol";
+
+abstract contract UniswapV3NonFungiblePositionManagerLike {
+    function positions(uint256 tokenId)
+        external
+        view
+        virtual
+        returns (
+          uint96 nonce,
+          address operator,
+          address token0,
+          address token1,
+          uint24 fee,
+          int24 tickLower,
+          int24 tickUpper,
+          uint128 liquidity,
+          uint256 feeGrowthInside0LastX128,
+          uint256 feeGrowthInside1LastX128,
+          uint128 tokensOwed0,
+          uint128 tokensOwed1
+        );
+}
 
 contract UniswapV3FeeCalculator {
     // --- Variables ---

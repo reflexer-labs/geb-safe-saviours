@@ -14,13 +14,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pragma solidity >=0.6.7;
-pragma experimental ABIEncoderV2;
 
 import "../interfaces/SafeSaviourLike.sol";
 import "../interfaces/UniswapV3NonFungiblePositionManagerLike.sol";
+import "../interfaces/UniswapV3LiquidityRemoverLike.sol";
 
-import "../integrations/uniswap/uni-v3/UniswapV3FeeCalculator.sol";
-import "../integrations/uniswap/uni-v3/libs/PoolAddress.sol";
+import {UniswapV3PoolLike, UniswapV3FeeCalculator} from "../integrations/uniswap/uni-v3/UniswapV3FeeCalculator.sol";
 
 import "../math/SafeMath.sol";
 
@@ -96,14 +95,18 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
     // Whether the system coin is token0 in the Uniswap pool or not
     bool                                    public isSystemCoinToken0;
+
     // NFTs used to back safes
     mapping(address => NFTCollateral)       public lpTokenCover;
     // Amount of system coin that Safe owners can get back
     mapping(address => uint256)             public underlyingReserves;
+
     // NFT position manager for Uniswap v3
     UniswapV3NonFungiblePositionManagerLike public positionManager;
     // Uniswap fee calculator for each position
     UniswapV3FeeCalculator                  public feeCalculator;
+    // Contract helping with liquidity removal
+    UniswapV3LiquidityRemoverLike           public liquidityRemover;
     // The ERC20 system coin
     ERC20Like                               public systemCoin;
     // The system coin join contract
@@ -144,59 +147,45 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         bool isSystemCoinToken0_,
         address coinJoin_,
         address collateralJoin_,
-        address liquidationEngine_,
-        address taxCollector_,
         address oracleRelayer_,
         address safeManager_,
         address saviourRegistry_,
         address positionManager_,
-        address feeCalculator_,
-        uint24  poolFee_,
+        address targetUniswapPool_,
+        address liquidityRemover_,
         uint256 minKeeperPayoutValue_
     ) public {
         require(coinJoin_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-coin-join");
         require(collateralJoin_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-collateral-join");
         require(oracleRelayer_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-oracle-relayer");
-        require(liquidationEngine_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-liquidation-engine");
-        require(taxCollector_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-tax-collector");
         require(safeManager_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-safe-manager");
         require(saviourRegistry_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-saviour-registry");
         require(positionManager_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-positions-manager");
-        require(feeCalculator_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-fee-calculator");
+        require(targetUniswapPool_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-target-pool");
+        require(liquidityRemover_ != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-liquidity-remover");
         require(minKeeperPayoutValue_ > 0, "NativeUnderlyingUniswapV3SafeSaviour/invalid-min-payout-value");
-        require(poolFee_ > 0, "NativeUnderlyingUniswapV3SafeSaviour/null-pool-fee");
 
         authorizedAccounts[msg.sender] = 1;
 
         isSystemCoinToken0   = isSystemCoinToken0_;
         minKeeperPayoutValue = minKeeperPayoutValue_;
-        poolFee              = poolFee_;
+        targetUniswapPool    = targetUniswapPool_;
 
         coinJoin             = CoinJoinLike(coinJoin_);
         collateralJoin       = CollateralJoinLike(collateralJoin_);
-        liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
-        taxCollector         = TaxCollectorLike(taxCollector_);
         oracleRelayer        = OracleRelayerLike(oracleRelayer_);
         systemCoin           = ERC20Like(coinJoin.systemCoin());
         safeEngine           = SAFEEngineLike(coinJoin.safeEngine());
         safeManager          = GebSafeManagerLike(safeManager_);
+        liquidityRemover     = UniswapV3LiquidityRemoverLike(liquidityRemover_);
         saviourRegistry      = SAFESaviourRegistryLike(saviourRegistry_);
-        feeCalculator        = UniswapV3FeeCalculator(feeCalculator_);
         positionManager      = UniswapV3NonFungiblePositionManagerLike(positionManager_);
         collateralToken      = ERC20Like(collateralJoin.collateral());
 
         oracleRelayer.redemptionPrice();
+        poolFee = UniswapV3PoolLike(targetUniswapPool).fee();
 
-        // Avoid stack too deep
-        {
-          (address token0, address token1) = (isSystemCoinToken0) ?
-            (address(systemCoin), address(collateralToken)) : (address(collateralToken), address(systemCoin));
-
-          PoolAddress.PoolKey memory key = PoolAddress.PoolKey(token0, token1, poolFee);
-          targetUniswapPool              = PoolAddress.computeAddress(positionManager.factory(), key);
-        }
-
-        require(targetUniswapPool != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-target-pool");
+        require(poolFee > 0, "NativeUnderlyingUniswapV3SafeSaviour/null-pool-fee");
         require(collateralJoin.contractEnabled() == 1, "NativeUnderlyingUniswapV3SafeSaviour/join-disabled");
         require(address(collateralToken) != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-col-token");
         require(address(safeEngine) != address(0), "NativeUnderlyingUniswapV3SafeSaviour/null-safe-engine");
@@ -205,8 +194,7 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         emit AddAuthorization(msg.sender);
         emit ModifyParameters("minKeeperPayoutValue", minKeeperPayoutValue);
         emit ModifyParameters("oracleRelayer", oracleRelayer_);
-        emit ModifyParameters("taxCollector", taxCollector_);
-        emit ModifyParameters("liquidationEngine", liquidationEngine_);
+        emit ModifyParameters("liquidityRemover", liquidityRemover_);
         emit ModifyParameters("positionManager", positionManager_);
     }
 
@@ -258,6 +246,9 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         else if (parameter == "feeCalculator") {
             feeCalculator = UniswapV3FeeCalculator(data);
         }
+        else if (parameter == "liquidityRemover") {
+            liquidityRemover = UniswapV3LiquidityRemoverLike(data);
+        }
         else revert("NativeUnderlyingUniswapV3SafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, data);
     }
@@ -299,7 +290,7 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
           address token0_,
           address token1_,
           uint24 fee_,
-          ,,,,,,
+          ,,
         ) = positionManager.positions(tokenId);
 
         // Position checks
@@ -393,6 +384,9 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
           "NativeUnderlyingUniswapV3SafeSaviour/no-cover"
         );
 
+        // Tax the collateral
+        taxCollector.taxSingle(collateralType);
+
         // Get current sys coin balance
         uint256 sysCoinBalance = systemCoin.balanceOf(address(this));
 
@@ -408,8 +402,8 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         // Withdraw all liquidity
-        if (lpTokenCover[safeHandler].secondId != 0) removeLiquidity(lpTokenCover[safeHandler].secondId, safeHandler);
-        removeLiquidity(lpTokenCover[safeHandler].firstId, safeHandler);
+        if (lpTokenCover[safeHandler].secondId != 0) removeLiquidity(lpTokenCover[safeHandler].secondId);
+        removeLiquidity(lpTokenCover[safeHandler].firstId);
 
         // Get amounts withdrawn
         sysCoinBalance = sub(systemCoin.balanceOf(address(this)), sysCoinBalance);
@@ -503,34 +497,19 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     /**
      * @notice Remove all liquidity from the positions covering a specific SAFE
      * @param tokenId The ID of the position from which we withdraw liquidity
-     * @param safeHandler The handler of the SAFE for which we withdraw Uniswap liquidity
      */
-    function removeLiquidity(uint256 tokenId, address safeHandler) internal {
-        // Collect fees first
-        UniswapV3NonFungiblePositionManagerLike.CollectParams memory collectParams =
-          UniswapV3NonFungiblePositionManagerLike.CollectParams(
-            tokenId, address(this), uint128(-1), uint128(-1)
-        );
+    function removeLiquidity(uint256 tokenId) internal {
+        // Approve the position to be handled by the liquidity remover
+        positionManager.approve(address(liquidityRemover), tokenId);
 
-        positionManager.collect(collectParams);
-
-        // Withdraw liquidity next
-        ( ,,,,,,,
-          uint128 liquidity,
-          ,,,
-        ) = positionManager.positions(tokenId);
-
-        UniswapV3NonFungiblePositionManagerLike.DecreaseLiquidityParams memory decreaseParams =
-          UniswapV3NonFungiblePositionManagerLike.DecreaseLiquidityParams(
-            tokenId, liquidity, 0, 0, block.timestamp
-        );
-
-        positionManager.decreaseLiquidity(decreaseParams);
+        // Remove liquidity and fees
+        liquidityRemover.removeAllLiquidity(tokenId);
 
         // Checks
+        require(positionManager.ownerOf(tokenId) == address(this), "NativeUnderlyingUniswapV3SafeSaviour/position-not-back");
+
         ( ,,,,,,,
-          liquidity,
-          ,,,
+          uint128 liquidity
         ) = positionManager.positions(tokenId);
         require(liquidity == 0, "NativeUnderlyingUniswapV3SafeSaviour/invalid-liquidity-decrease");
     }
@@ -548,90 +527,11 @@ contract NativeUnderlyingUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     function keeperPayoutExceedsMinValue() override public returns (bool) {
         return false;
     }
-    /**
-     * @notice Return the total amount of tokens and fees that can be withdrawn from the current NFTS protecting a SAFE
-     * @param safeHandler The safe handler associated with the SAFE for which we get the total withdrawn tokens
-     */
-    function getTotalWithdrawnTokens(address safeHandler)
-      public view returns (uint256 totalSystemCoinsWithdrawn, uint256 totalCollateralTokensWithdrawn) {
-        // Get current sys coin balance
-        uint256 sysCoinBalance = systemCoin.balanceOf(address(this));
-
-        if (lpTokenCover[safeHandler].secondId != 0) {
-          (uint256 amount0Fees, uint256 amount1Fees) =
-            feeCalculator.getUncollectedFees(targetUniswapPool, lpTokenCover[safeHandler].secondId);
-
-          ( ,,,,,,,,,,
-            uint128 tokensOwed0,
-            uint128 tokensOwed1
-          ) = positionManager.positions(lpTokenCover[safeHandler].secondId);
-
-          if (isSystemCoinToken0) {
-            totalSystemCoinsWithdrawn      = add(totalSystemCoinsWithdrawn, add(amount0Fees, uint256(tokensOwed0)));
-            totalCollateralTokensWithdrawn = add(totalCollateralTokensWithdrawn, add(amount1Fees, uint256(tokensOwed1)));
-          } else {
-            totalSystemCoinsWithdrawn      = add(totalSystemCoinsWithdrawn, add(amount1Fees, uint256(tokensOwed1)));
-            totalCollateralTokensWithdrawn = add(totalCollateralTokensWithdrawn, add(amount0Fees, uint256(tokensOwed0)));
-          }
-        }
-
-        {
-          (uint256 amount0Fees, uint256 amount1Fees) =
-            feeCalculator.getUncollectedFees(targetUniswapPool, lpTokenCover[safeHandler].firstId);
-
-          ( ,,,,,,,,,,
-            uint128 tokensOwed0,
-            uint128 tokensOwed1
-          ) = positionManager.positions(lpTokenCover[safeHandler].firstId);
-
-          if (isSystemCoinToken0) {
-            totalSystemCoinsWithdrawn      = add(totalSystemCoinsWithdrawn, add(amount0Fees, uint256(tokensOwed0)));
-            totalCollateralTokensWithdrawn = add(totalCollateralTokensWithdrawn, add(amount1Fees, uint256(tokensOwed1)));
-          } else {
-            totalSystemCoinsWithdrawn      = add(totalSystemCoinsWithdrawn, add(amount1Fees, uint256(tokensOwed1)));
-            totalCollateralTokensWithdrawn = add(totalCollateralTokensWithdrawn, add(amount0Fees, uint256(tokensOwed0)));
-          }
-        }
-    }
     /*
     * @notify Returns whether a SAFE can be currently saved
-    * @param safeHandler The safe handler associated with the SAFE
+    * @dev This implementation always return false
     */
     function canSave(bytes32, address safeHandler) override external returns (bool) {
-        // Check that the SAFE has a non null amount of NFT tokens covering it
-        if (lpTokenCover[safeHandler].firstId != 0) {
-          return false;
-        }
-
-        // See how many tokens can be withdrawn from the NFTs + take into account fees
-        (uint256 totalSystemCoinsWithdrawn, uint256 totalCollateralTokensWithdrawn) =
-          getTotalWithdrawnTokens(safeHandler);
-
-        // Calculate keeper fees and amount of tokens used to save the SAFE
-        (uint256 keeperSysCoins, uint256 keeperCollateralCoins) =
-          getKeeperPayoutTokens(
-            safeHandler,
-            oracleRelayer.redemptionPrice(),
-            totalSystemCoinsWithdrawn,
-            totalCollateralTokensWithdrawn
-          );
-
-        (uint256 safeDebtRepaid, uint256 safeCollateralAdded) =
-          getTokensForSaving(
-            safeHandler,
-            oracleRelayer.redemptionPrice(),
-            sub(totalSystemCoinsWithdrawn, keeperSysCoins),
-            sub(totalCollateralTokensWithdrawn, keeperCollateralCoins)
-          );
-
-        // If there are some tokens used to repay the keeper, return true
-        if (both(
-          either(safeDebtRepaid > 0, safeCollateralAdded > 0),
-          either(keeperSysCoins > 0, keeperCollateralCoins > 0)
-        )) {
-          return true;
-        }
-
         return false;
     }
     /*

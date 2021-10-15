@@ -9,6 +9,10 @@ abstract contract UniswapV3PoolLike {
     /// @return The token contract address
     function token1() external virtual view returns (address);
 
+    /// @notice The pool's fee in hundredths of a bip, i.e. 1e-6
+    /// @return The fee
+    function fee() external virtual view returns (uint24);
+
     /// @notice Returns the information about a position by the position's key
     /// @param key The position's key is a hash of a preimage composed by the owner, tickLower and tickUpper
     /// @return _liquidity The amount of liquidity in the position,
