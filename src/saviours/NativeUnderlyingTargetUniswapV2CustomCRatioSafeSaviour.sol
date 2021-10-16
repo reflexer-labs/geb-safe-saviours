@@ -20,7 +20,7 @@ import "../interfaces/SafeSaviourLike.sol";
 import "../math/SafeMath.sol";
 import "../math/Math.sol";
 
-contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, SafeSaviourLike {
+contract NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, SafeSaviourLike {
     // --- Auth ---
     mapping (address => uint256) public authorizedAccounts;
     /**
@@ -43,7 +43,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
     * @notice Checks whether msg.sender can call an authed function
     **/
     modifier isAuthorized {
-        require(authorizedAccounts[msg.sender] == 1, "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/account-not-authorized");
+        require(authorizedAccounts[msg.sender] == 1, "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/account-not-authorized");
         _;
     }
 
@@ -70,7 +70,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
     modifier isAllowed {
         require(
           either(restrictUsage == 0, both(restrictUsage == 1, allowedUsers[msg.sender] == 1)),
-          "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/account-not-allowed"
+          "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/account-not-allowed"
         );
         _;
     }
@@ -141,16 +141,16 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
         address lpToken_,
         uint256 minKeeperPayoutValue_
     ) public {
-        require(coinJoin_ != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-coin-join");
-        require(collateralJoin_ != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-collateral-join");
-        require(systemCoinOrcl_ != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-system-coin-oracle");
-        require(oracleRelayer_ != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-oracle-relayer");
-        require(liquidationEngine_ != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-liquidation-engine");
-        require(taxCollector_ != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-tax-collector");
-        require(safeManager_ != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-safe-manager");
-        require(liquidityManager_ != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-liq-manager");
-        require(lpToken_ != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-lp-token");
-        require(minKeeperPayoutValue_ > 0, "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/invalid-min-payout-value");
+        require(coinJoin_ != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-coin-join");
+        require(collateralJoin_ != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-collateral-join");
+        require(systemCoinOrcl_ != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-system-coin-oracle");
+        require(oracleRelayer_ != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-oracle-relayer");
+        require(liquidationEngine_ != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-liquidation-engine");
+        require(taxCollector_ != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-tax-collector");
+        require(safeManager_ != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-safe-manager");
+        require(liquidityManager_ != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-liq-manager");
+        require(lpToken_ != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-lp-token");
+        require(minKeeperPayoutValue_ > 0, "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/invalid-min-payout-value");
 
         authorizedAccounts[msg.sender] = 1;
 
@@ -173,10 +173,10 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
         systemCoinOrcl.getResultWithValidity();
         oracleRelayer.redemptionPrice();
 
-        require(collateralJoin.contractEnabled() == 1, "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/join-disabled");
-        require(address(collateralToken) != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-col-token");
-        require(address(safeEngine) != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-safe-engine");
-        require(address(systemCoin) != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-sys-coin");
+        require(collateralJoin.contractEnabled() == 1, "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/join-disabled");
+        require(address(collateralToken) != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-col-token");
+        require(address(safeEngine) != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-safe-engine");
+        require(address(systemCoin) != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-sys-coin");
 
         emit AddAuthorization(msg.sender);
         emit ModifyParameters("minKeeperPayoutValue", minKeeperPayoutValue);
@@ -195,14 +195,14 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
      */
     function modifyParameters(bytes32 parameter, uint256 val) external isAuthorized {
         if (parameter == "minKeeperPayoutValue") {
-            require(val > 0, "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-min-payout");
+            require(val > 0, "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-min-payout");
             minKeeperPayoutValue = val;
         }
         else if (parameter == "restrictUsage") {
-            require(val <= 1, "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/invalid-restriction");
+            require(val <= 1, "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/invalid-restriction");
             restrictUsage = val;
         }
-        else revert("NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/modify-unrecognized-param");
+        else revert("NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, val);
     }
     /**
@@ -211,7 +211,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
      * @param data New address for the parameter
      */
     function modifyParameters(bytes32 parameter, address data) external isAuthorized {
-        require(data != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-data");
+        require(data != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-data");
 
         if (parameter == "systemCoinOrcl") {
             systemCoinOrcl = PriceFeedLike(data);
@@ -230,7 +230,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
         else if (parameter == "taxCollector") {
             taxCollector = TaxCollectorLike(data);
         }
-        else revert("NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/modify-unrecognized-param");
+        else revert("NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, data);
     }
 
@@ -255,7 +255,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
         address safeHandler = safeManager.safes(safeID);
         uint256 systemCoins = underlyingReserves[safeHandler];
 
-        require(systemCoins > 0, "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/no-reserves");
+        require(systemCoins > 0, "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/no-reserves");
         underlyingReserves[safeHandler] = 0;
 
         systemCoin.transfer(dst, systemCoins);
@@ -271,20 +271,20 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
     * @param threshold cRatio threshold
     */
     function deposit(uint256 safeID, uint256 lpTokenAmount) external isAllowed() nonReentrant {
-        require(lpTokenAmount > 0, "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-lp-amount");
+        require(lpTokenAmount > 0, "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-lp-amount");
 
         // Check that the SAFE exists inside GebSafeManager
         address safeHandler = safeManager.safes(safeID);
-        require(safeHandler != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-handler");
+        require(safeHandler != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-handler");
 
         // Check that the SAFE has debt
         (, uint256 safeDebt) =
           SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
-        require(safeDebt > 0, "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/safe-does-not-have-debt");
+        require(safeDebt > 0, "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/safe-does-not-have-debt");
 
         // Update the lpToken balance used to cover the SAFE and transfer tokens to this contract
         lpTokenCover[safeHandler] = add(lpTokenCover[safeHandler], lpTokenAmount);
-        require(lpToken.transferFrom(msg.sender, address(this), lpTokenAmount), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/could-not-transfer-lp");
+        require(lpToken.transferFrom(msg.sender, address(this), lpTokenAmount), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/could-not-transfer-lp");
 
         emit Deposit(msg.sender, safeHandler, lpTokenAmount);
     }
@@ -296,11 +296,11 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
     * @param dst The address that will receive the LP tokens
     */
     function withdraw(uint256 safeID, uint256 lpTokenAmount, address dst) external controlsSAFE(msg.sender, safeID) nonReentrant {
-        require(lpTokenAmount > 0, "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-lp-amount");
+        require(lpTokenAmount > 0, "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-lp-amount");
 
         // Fetch the handler from the SAFE manager
         address safeHandler = safeManager.safes(safeID);
-        require(lpTokenCover[safeHandler] >= lpTokenAmount, "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/not-enough-to-withdraw");
+        require(lpTokenCover[safeHandler] >= lpTokenAmount, "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/not-enough-to-withdraw");
 
         // Withdraw cover and transfer collateralToken to the caller
         lpTokenCover[safeHandler] = sub(lpTokenCover[safeHandler], lpTokenAmount);
@@ -319,13 +319,13 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
     *         system coins sent to the keeper as their payment (this implementation always returns 0)
     */
     function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external nonReentrant returns (bool, uint256, uint256) {
-        require(keeper != address(0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-keeper-address");
+        require(keeper != address(0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-keeper-address");
 
         // Check that this is handling the correct collateral
-        require(collateralType == collateralJoin.collateralType(), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/invalid-collateral-type");
+        require(collateralType == collateralJoin.collateralType(), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/invalid-collateral-type");
 
         // Check that the SAFE has a non null amount of LP tokens covering it
-        require(lpTokenCover[safeHandler] > 0, "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/null-cover");
+        require(lpTokenCover[safeHandler] > 0, "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/null-cover");
 
         // Tax the collateral
         taxCollector.taxSingle(collateralType);
@@ -347,7 +347,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
         // Check after removing liquidity
         require(
           systemCoin.balanceOf(address(this)) > sysCoinBalance,
-          "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/faulty-remove-liquidity"
+          "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/faulty-remove-liquidity"
         );
 
         // Compute how many coins were withdrawn as well as the amount of ETH that's in this contract
@@ -359,14 +359,14 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
           getKeeperPayoutTokens(safeHandler, oracleRelayer.redemptionPrice(), sysCoinBalance, collateralCoinBalance);
 
         // There must be tokens that go to the keeper
-        require(either(keeperSysCoins > 0, keeperCollateralCoins > 0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/cannot-pay-keeper");
+        require(either(keeperSysCoins > 0, keeperCollateralCoins > 0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/cannot-pay-keeper");
 
         // Compute how many coins remain after paying the keeper
         sysCoinBalance        = sub(sysCoinBalance, keeperSysCoins);
         collateralCoinBalance = sub(collateralCoinBalance, keeperCollateralCoins);
 
         // There must be tokens that are used to save the SAFE
-        require(either(sysCoinBalance > 0, collateralCoinBalance > 0), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/cannot-save-safe");
+        require(either(sysCoinBalance > 0, collateralCoinBalance > 0), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/cannot-save-safe");
 
         // Get the amount of system coins used to repay debt
         uint256 safeDebtRepaid = getTokensForSaving(safeHandler, sysCoinBalance);
@@ -417,7 +417,7 @@ contract NativeUnderlyingUniswapV2CustomCRatioSafeSaviour is Math, SafeMath, Saf
         }
 
         // Check that the current cRatio is above the liquidation threshold
-        require(safeIsAfloat(safeHandler), "NativeUnderlyingUniswapV2CustomCRatioSafeSaviour/safe-not-saved");
+        require(safeIsAfloat(safeHandler), "NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour/safe-not-saved");
 
         // Pay keeper
         if (keeperSysCoins > 0) {

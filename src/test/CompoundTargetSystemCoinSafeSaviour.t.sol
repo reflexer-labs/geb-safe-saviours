@@ -22,7 +22,7 @@ import {PriceOracle} from "../integrations/compound/PriceOracle.sol";
 import {SaviourCRatioSetter} from "../SaviourCRatioSetter.sol";
 import {SAFESaviourRegistry} from "../SAFESaviourRegistry.sol";
 
-import {CompoundSystemCoinSafeSaviour} from "../saviours/CompoundSystemCoinSafeSaviour.sol";
+import {CompoundTargetSystemCoinSafeSaviour} from "../saviours/CompoundTargetSystemCoinSafeSaviour.sol";
 
 abstract contract Hevm {
     function warp(uint256) virtual public;
@@ -98,7 +98,7 @@ contract TestAccountingEngine is AccountingEngine {
 }
 contract FakeUser {
     function doModifyParameters(
-      CompoundSystemCoinSafeSaviour saviour,
+      CompoundTargetSystemCoinSafeSaviour saviour,
       bytes32 parameter,
       uint256 data
     ) public {
@@ -106,7 +106,7 @@ contract FakeUser {
     }
 
     function doModifyParameters(
-      CompoundSystemCoinSafeSaviour saviour,
+      CompoundTargetSystemCoinSafeSaviour saviour,
       bytes32 parameter,
       address data
     ) public {
@@ -184,7 +184,7 @@ contract FakeUser {
     }
 
     function doDeposit(
-        CompoundSystemCoinSafeSaviour saviour,
+        CompoundTargetSystemCoinSafeSaviour saviour,
         Coin systemCoin,
         bytes32 collateralType,
         uint256 safeID,
@@ -195,7 +195,7 @@ contract FakeUser {
     }
 
     function doWithdraw(
-        CompoundSystemCoinSafeSaviour saviour,
+        CompoundTargetSystemCoinSafeSaviour saviour,
         bytes32 collateralType,
         uint256 safeID,
         uint256 cTokenAmount,
@@ -223,7 +223,7 @@ contract FakeUser {
     }
 }
 
-contract CompoundSystemCoinSafeSaviourTest is DSTest {
+contract CompoundTargetSystemCoinSafeSaviourTest is DSTest {
     Hevm hevm;
 
     TestSAFEEngine safeEngine;
@@ -245,7 +245,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
 
     Coin systemCoin;
 
-    CompoundSystemCoinSafeSaviour saviour;
+    CompoundTargetSystemCoinSafeSaviour saviour;
     SaviourCRatioSetter cRatioSetter;
     SAFESaviourRegistry saviourRegistry;
 
@@ -402,7 +402,7 @@ contract CompoundSystemCoinSafeSaviourTest is DSTest {
         cRatioSetter = new SaviourCRatioSetter(address(oracleRelayer), address(safeManager));
         cRatioSetter.setDefaultCRatio("gold", defaultDesiredCollateralizationRatio);
 
-        saviour = new CompoundSystemCoinSafeSaviour(
+        saviour = new CompoundTargetSystemCoinSafeSaviour(
             address(coinJoin),
             address(cRatioSetter),
             address(systemCoinOracle),

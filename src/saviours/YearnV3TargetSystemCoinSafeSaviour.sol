@@ -1,4 +1,4 @@
-// Copyright (C) 2021 Reflexer Labs, INC
+// Copyright (C) 2021 James Connolly, Reflexer Labs, INC
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -11,16 +11,16 @@
 // GNU General Public License for more details.
 
 // You should have received a copy of the GNU General Public License
-// along with this program. If not, see <http://www.gnu.org/licenses/>.
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pragma solidity >=0.6.7;
 
-import "../interfaces/CTokenLike.sol";
+import "../interfaces/YVault3Like.sol";
 import "../interfaces/SaviourCRatioSetterLike.sol";
 import "../interfaces/SafeSaviourLike.sol";
 import "../math/SafeMath.sol";
 
-contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
+contract YearnV3TargetSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     // --- Auth ---
     mapping (address => uint256) public authorizedAccounts;
     /**
@@ -43,7 +43,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     * @notice Checks whether msg.sender can call an authed function
     **/
     modifier isAuthorized {
-        require(authorizedAccounts[msg.sender] == 1, "CompoundSystemCoinSafeSaviour/account-not-authorized");
+        require(authorizedAccounts[msg.sender] == 1, "YearnV3TargetSystemCoinSafeSaviour/account-not-authorized");
         _;
     }
 
@@ -70,7 +70,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     modifier isAllowed {
         require(
           either(restrictUsage == 0, both(restrictUsage == 1, allowedUsers[msg.sender] == 1)),
-          "CompoundSystemCoinSafeSaviour/account-not-allowed"
+          "YearnV3TargetSystemCoinSafeSaviour/account-not-allowed"
         );
         _;
     }
@@ -78,11 +78,14 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     // --- Variables ---
     // Flag that tells whether usage of the contract is restricted to allowed users
     uint256                     public restrictUsage;
+    // Default max loss used when saving a Safe
+    uint256                     public defaultMaxLoss = 1; // 0.01%
 
-    // Amount of cTokens currently protecting each position
-    mapping(bytes32 => mapping(address => uint256)) public cTokenCover;
-    // The cToken address
-    CTokenLike                  public cToken;
+    // Amount of collateral deposited to cover each SAFE
+    mapping(bytes32 => mapping(address => uint256)) public yvTokenCover;
+
+    // The yVault address
+    YVault3Like                 public yVault;
     // The ERC20 system coin
     ERC20Like                   public systemCoin;
     // The system coin join contract
@@ -91,6 +94,8 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     PriceFeedLike               public systemCoinOrcl;
     // Contract that defines desired CRatios for each Safe after it is saved
     SaviourCRatioSetterLike     public cRatioSetter;
+
+    uint256                     public constant MAX_LOSS = 10_000; // 10k basis points
 
     // --- Events ---
     event AddAuthorization(address account);
@@ -104,7 +109,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
       bytes32 collateralType,
       address indexed safeHandler,
       uint256 systemCoinAmount,
-      uint256 cTokenAmount
+      uint256 yvTokenAmount
     );
     event Withdraw(
       address indexed caller,
@@ -112,7 +117,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
       address indexed safeHandler,
       address dst,
       uint256 systemCoinAmount,
-      uint256 cTokenAmount
+      uint256 yvTokenAmount
     );
 
     constructor(
@@ -124,49 +129,44 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
       address oracleRelayer_,
       address safeManager_,
       address saviourRegistry_,
-      address cToken_,
-      uint256 keeperPayout_,
+      address yVault_,
       uint256 minKeeperPayoutValue_
     ) public {
-        require(coinJoin_ != address(0), "CompoundSystemCoinSafeSaviour/null-coin-join");
-        require(cRatioSetter_ != address(0), "CompoundSystemCoinSafeSaviour/null-cratio-setter");
-        require(systemCoinOrcl_ != address(0), "CompoundSystemCoinSafeSaviour/null-system-coin-oracle");
-        require(oracleRelayer_ != address(0), "CompoundSystemCoinSafeSaviour/null-oracle-relayer");
-        require(taxCollector_ != address(0), "CompoundSystemCoinSafeSaviour/null-tax-collector");
-        require(liquidationEngine_ != address(0), "CompoundSystemCoinSafeSaviour/null-liquidation-engine");
-        require(safeManager_ != address(0), "CompoundSystemCoinSafeSaviour/null-safe-manager");
-        require(saviourRegistry_ != address(0), "CompoundSystemCoinSafeSaviour/null-saviour-registry");
-        require(cToken_ != address(0), "CompoundSystemCoinSafeSaviour/null-c-token");
-        require(keeperPayout_ > 0, "CompoundSystemCoinSafeSaviour/invalid-keeper-payout");
-        require(minKeeperPayoutValue_ > 0, "CompoundSystemCoinSafeSaviour/invalid-min-payout-value");
+        require(coinJoin_ != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-coin-join");
+        require(cRatioSetter_ != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-cratio-setter");
+        require(systemCoinOrcl_ != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-system-coin-oracle");
+        require(oracleRelayer_ != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-oracle-relayer");
+        require(liquidationEngine_ != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-liquidation-engine");
+        require(taxCollector_ != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-tax-collector");
+        require(safeManager_ != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-safe-manager");
+        require(saviourRegistry_ != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-saviour-registry");
+        require(yVault_ != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-y-vault");
+        require(minKeeperPayoutValue_ > 0, "YearnV3TargetSystemCoinSafeSaviour/invalid-min-payout-value");
 
         authorizedAccounts[msg.sender] = 1;
 
-        keeperPayout         = keeperPayout_;
         minKeeperPayoutValue = minKeeperPayoutValue_;
-
         coinJoin             = CoinJoinLike(coinJoin_);
         cRatioSetter         = SaviourCRatioSetterLike(cRatioSetter_);
         liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
         taxCollector         = TaxCollectorLike(taxCollector_);
+
         oracleRelayer        = OracleRelayerLike(oracleRelayer_);
         systemCoinOrcl       = PriceFeedLike(systemCoinOrcl_);
         systemCoin           = ERC20Like(coinJoin.systemCoin());
         safeEngine           = SAFEEngineLike(coinJoin.safeEngine());
         safeManager          = GebSafeManagerLike(safeManager_);
         saviourRegistry      = SAFESaviourRegistryLike(saviourRegistry_);
-        cToken               = CTokenLike(cToken_);
+        yVault               = YVault3Like(yVault_);
 
         systemCoinOrcl.read();
         systemCoinOrcl.getResultWithValidity();
         oracleRelayer.redemptionPrice();
 
-        require(cToken.isCToken(), "CompoundSystemCoinSafeSaviour/not-c-token");
-        require(address(safeEngine) != address(0), "CompoundSystemCoinSafeSaviour/null-safe-engine");
-        require(address(systemCoin) != address(0), "CompoundSystemCoinSafeSaviour/null-sys-coin");
+        require(address(safeEngine) != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-safe-engine");
+        require(address(systemCoin) != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-sys-coin");
 
         emit AddAuthorization(msg.sender);
-        emit ModifyParameters("keeperPayout", keeperPayout);
         emit ModifyParameters("minKeeperPayoutValue", minKeeperPayoutValue);
         emit ModifyParameters("liquidationEngine", liquidationEngine_);
         emit ModifyParameters("taxCollector", taxCollector_);
@@ -181,19 +181,19 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
      * @param val New value for the parameter
      */
     function modifyParameters(bytes32 parameter, uint256 val) external isAuthorized {
-        if (parameter == "keeperPayout") {
-            require(val > 0, "CompoundSystemCoinSafeSaviour/null-payout");
-            keeperPayout = val;
-        }
-        else if (parameter == "minKeeperPayoutValue") {
-            require(val > 0, "CompoundSystemCoinSafeSaviour/null-min-payout");
+        if (parameter == "minKeeperPayoutValue") {
+            require(val > 0, "YearnV3TargetSystemCoinSafeSaviour/null-min-payout");
             minKeeperPayoutValue = val;
         }
         else if (parameter == "restrictUsage") {
-            require(val <= 1, "CompoundSystemCoinSafeSaviour/invalid-restriction");
+            require(val <= 1, "YearnV3TargetSystemCoinSafeSaviour/invalid-restriction");
             restrictUsage = val;
         }
-        else revert("CompoundSystemCoinSafeSaviour/modify-unrecognized-param");
+        else if (parameter == "defaultMaxLoss") {
+            require(val <= MAX_LOSS, "YearnV3TargetSystemCoinSafeSaviour/exceeds-max-loss");
+            defaultMaxLoss = val;
+        }
+        else revert("YearnV3TargetSystemCoinSafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, val);
     }
     /**
@@ -202,7 +202,7 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
      * @param data New address for the parameter
      */
     function modifyParameters(bytes32 parameter, address data) external isAuthorized {
-        require(data != address(0), "CompoundSystemCoinSafeSaviour/null-data");
+        require(data != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-data");
 
         if (parameter == "systemCoinOrcl") {
             systemCoinOrcl = PriceFeedLike(data);
@@ -219,120 +219,119 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         else if (parameter == "taxCollector") {
             taxCollector = TaxCollectorLike(data);
         }
-        else revert("CompoundSystemCoinSafeSaviour/modify-unrecognized-param");
+        else revert("YearnV3TargetSystemCoinSafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, data);
     }
 
     // --- Adding/Withdrawing Cover ---
     /*
-    * @notice Deposit system coins in the contract and lend them on Compound in order to provide cover for a specific
-    *         SAFE controlled by the SAFE Manager
+    * @notice Deposit systemCoin in the contract and lend in the Yearn vault in order to provide cover for a
+    *         specific SAFE controlled by the SAFE Manager
     * @param collateralType The collateral type used in the SAFE
     * @param safeID The ID of the SAFE to protect. This ID should be registered inside GebSafeManager
-    * @param systemCoinAmount The amount of system coins to deposit
+    * @param systemCoinAmount The amount of systemCoin to deposit
     */
     function deposit(bytes32 collateralType, uint256 safeID, uint256 systemCoinAmount)
       external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
         uint256 defaultCRatio = cRatioSetter.defaultDesiredCollateralizationRatios(collateralType);
-        require(systemCoinAmount > 0, "CompoundSystemCoinSafeSaviour/null-system-coin-amount");
-        require(defaultCRatio > 0, "CompoundSystemCoinSafeSaviour/collateral-not-set");
+        require(systemCoinAmount > 0, "YearnV3TargetSystemCoinSafeSaviour/null-system-coin-amount");
+        require(defaultCRatio > 0, "YearnV3TargetSystemCoinSafeSaviour/collateral-not-set");
 
         // Check that the SAFE exists inside GebSafeManager
         address safeHandler = safeManager.safes(safeID);
-        require(safeHandler != address(0), "CompoundSystemCoinSafeSaviour/null-handler");
+        require(safeHandler != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-handler");
 
         // Check that the SAFE has debt
         (, uint256 safeDebt) = safeEngine.safes(collateralType, safeHandler);
-        require(safeDebt > 0, "CompoundSystemCoinSafeSaviour/safe-does-not-have-debt");
+        require(safeDebt > 0, "YearnV3TargetSystemCoinSafeSaviour/safe-does-not-have-debt");
 
-        // Lend on Compound
-        uint256 currentCTokenBalance = cToken.balanceOf(address(this));
+        // Deposit into Yearn
         systemCoin.transferFrom(msg.sender, address(this), systemCoinAmount);
-        systemCoin.approve(address(cToken), systemCoinAmount);
-        require(cToken.mint(systemCoinAmount) == 0, "CompoundSystemCoinSafeSaviour/cannot-mint-ctoken");
+        systemCoin.approve(address(yVault), systemCoinAmount);
+        uint256 yvTokens = yVault.deposit(systemCoinAmount, address(this)); // use return value to save on math operations
+        require(yvTokens > 0, "YearnV3TargetSystemCoinSafeSaviour/no-vault-tokens-returned");
 
-        // Update the cToken balance used to cover the SAFE
-        cTokenCover[collateralType][safeHandler] =
-          add(cTokenCover[collateralType][safeHandler], sub(cToken.balanceOf(address(this)), currentCTokenBalance));
+        // Update the yvToken balance used to cover the SAFE
+        yvTokenCover[collateralType][safeHandler] = add(yvTokenCover[collateralType][safeHandler], yvTokens);
 
-        emit Deposit(msg.sender, collateralType, safeHandler, systemCoinAmount, sub(cToken.balanceOf(address(this)), currentCTokenBalance));
+        emit Deposit(msg.sender, collateralType, safeHandler, systemCoinAmount, yvTokens);
     }
-
     /*
-    * @notice Withdraw system coins from the contract by exiting your Compound lending position
+    * @notice Withdraw system coins from the contract and provide less cover for a SAFE
     * @dev Only an address that controls the SAFE inside GebSafeManager can call this
     * @param safeID The ID of the SAFE to remove cover from. This ID should be registered inside GebSafeManager
-    * @param cTokenAmount The amount of cTokens to use and redeem system coins from Compound
+    * @param yvTokenAmount The amount of yvTokens to burn
+    * @param maxLoss The maximum acceptable loss to sustain on withdrawal.
+    *                If a loss is specified, up to that amount of shares may be burnt to cover losses on withdrawal.
     * @param dst The address that will receive the withdrawn system coins
     */
-    function withdraw(bytes32 collateralType, uint256 safeID, uint256 cTokenAmount, address dst)
+    function withdraw(bytes32 collateralType, uint256 safeID, uint256 yvTokenAmount, uint256 maxLoss, address dst)
       external controlsSAFE(msg.sender, safeID) nonReentrant {
-        require(cTokenAmount > 0, "CompoundSystemCoinSafeSaviour/null-cToken-amount");
+        require(yvTokenAmount > 0, "YearnV3TargetSystemCoinSafeSaviour/null-yvToken-amount");
+        require(dst != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-dst");
 
         // Fetch the handler from the SAFE manager
         address safeHandler = safeManager.safes(safeID);
-        require(cTokenCover[collateralType][safeHandler] >= cTokenAmount, "CompoundSystemCoinSafeSaviour/not-enough-to-redeem");
+        require(yvTokenCover[collateralType][safeHandler] >= yvTokenAmount, "YearnV3TargetSystemCoinSafeSaviour/withdraw-request-higher-than-balance");
 
-        // Redeem system coins from Compound and transfer them to the caller
-        uint256 currentSystemCoinAmount = systemCoin.balanceOf(address(this));
-        cTokenCover[collateralType][safeHandler] = sub(cTokenCover[collateralType][safeHandler], cTokenAmount);
-        require(cToken.redeem(cTokenAmount) == 0, "CompoundSystemCoinSafeSaviour/cannot-redeem-ctoken");
+        // Redeem system coins from Yearn and transfer them to the caller
+        yvTokenCover[collateralType][safeHandler] = sub(yvTokenCover[collateralType][safeHandler], yvTokenAmount);
 
-        uint256 amountTransferred = sub(systemCoin.balanceOf(address(this)), currentSystemCoinAmount);
-        systemCoin.transfer(dst, amountTransferred);
+        uint256 withdrawnSysCoinAmount = yVault.withdraw(yvTokenAmount, dst, maxLoss); // use return value to save on math operations
+        require(withdrawnSysCoinAmount > 0, "YearnV3TargetSystemCoinSafeSaviour/no-coins-withdrawn");
 
         emit Withdraw(
           msg.sender,
           collateralType,
           safeHandler,
           dst,
-          amountTransferred,
-          cTokenAmount
+          withdrawnSysCoinAmount,
+          yvTokenAmount
         );
     }
 
     // --- Saving Logic ---
     /*
-    * @notice Saves a SAFE by repaying some of its debt (using cTokens)
+    * @notice Saves a SAFE by repaying some of its debt
     * @dev Only the LiquidationEngine can call this
-    * @param keeper The keeper that called LiquidationEngine.liquidateSAFE and that should be rewarded for spending gas to save a SAFE
+    * @param keeper The keeper that called LiquidationEngine.liquidateSAFE and that should be rewarded for
+    *               spending gas to save a SAFE
     * @param collateralType The collateral type backing the SAFE that's being liquidated
     * @param safeHandler The handler of the SAFE that's being liquidated
-    * @return Whether the SAFE has been saved, the amount of debt repaid as well as the amount of
+    * @return Whether the SAFE has been saved, the amount of system coin debt repaid as well as the amount of
     *         system coins sent to the keeper as their payment
     */
-    function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external returns (bool, uint256, uint256) {
-        require(address(liquidationEngine) == msg.sender, "CompoundSystemCoinSafeSaviour/caller-not-liquidation-engine");
-        require(keeper != address(0), "CompoundSystemCoinSafeSaviour/null-keeper-address");
+    function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override
+      external returns (bool, uint256, uint256) {
+        require(address(liquidationEngine) == msg.sender, "YearnV3TargetSystemCoinSafeSaviour/caller-not-liquidation-engine");
+        require(keeper != address(0), "YearnV3TargetSystemCoinSafeSaviour/null-keeper-address");
 
         if (both(both(collateralType == "", safeHandler == address(0)), keeper == address(liquidationEngine))) {
             return (true, uint(-1), uint(-1));
         }
 
-        // Check that the fiat value of the keeper payout is high enough
-        require(keeperPayoutExceedsMinValue(), "CompoundSystemCoinSafeSaviour/small-keeper-payout-value");
-
         // Tax the collateral
         taxCollector.taxSingle(collateralType);
 
-        // Compute and check the validity of the amount of cTokens used to save the SAFE
-        uint256 tokenAmountUsed = tokenAmountUsedToSave(collateralType, safeHandler);
-        require(both(tokenAmountUsed != MAX_UINT, tokenAmountUsed != 0), "CompoundSystemCoinSafeSaviour/invalid-tokens-used-to-save");
+        // Compute and check the validity of the amount of yvTokens used to save the SAFE
+        uint256 systemCoinsToRepay = tokenAmountUsedToSave(collateralType, safeHandler);
+        uint256 yvTokensForSave    = div(mul(systemCoinsToRepay, WAD), yVault.pricePerShare());
+        require(both(systemCoinsToRepay != MAX_UINT, systemCoinsToRepay != 0), "YearnV3TargetSystemCoinSafeSaviour/invalid-tokens-used-to-save");
 
-        // Check that there are enough cTokens added to cover both the keeper's payout and the amount used to save the SAFE
-        uint256 keeperCTokenPayout = div(mul(keeperPayout, WAD), cToken.exchangeRateStored());
-        require(cTokenCover[collateralType][safeHandler] >= add(keeperCTokenPayout, tokenAmountUsed), "CompoundSystemCoinSafeSaviour/not-enough-cover-deposited");
+        // Check that there are enough yvTokens to cover both the keeper's payout and the amount used to save the SAFE
+        uint256 yvTokensToWithdraw = getTotalYVTokenBurn(yvTokensForSave);
+        require(yvTokenCover[collateralType][safeHandler] >= yvTokensToWithdraw, "YearnV3TargetSystemCoinSafeSaviour/not-enough-cover-deposited");
 
         // Update the remaining cover
-        cTokenCover[collateralType][safeHandler] = sub(cTokenCover[collateralType][safeHandler], add(keeperCTokenPayout, tokenAmountUsed));
+        yvTokenCover[collateralType][safeHandler] = sub(yvTokenCover[collateralType][safeHandler], yvTokensToWithdraw);
 
         // Mark the SAFE in the registry as just having been saved
         saviourRegistry.markSave(collateralType, safeHandler);
 
-        // Get system coins back from Compound
-        uint256 currentSystemCoinAmount = systemCoin.balanceOf(address(this));
-        require(cToken.redeem(add(keeperCTokenPayout, tokenAmountUsed)) == 0, "CompoundSystemCoinSafeSaviour/cannot-redeem-ctoken");
-        uint256 systemCoinsToRepay = sub(sub(systemCoin.balanceOf(address(this)), currentSystemCoinAmount), keeperPayout);
+        // Get system coins back from the Yearn vault
+        uint256 withdrawnAmount = yVault.withdraw(yvTokensToWithdraw, address(this), defaultMaxLoss);
+        require(withdrawnAmount > 0, "YearnV3TargetSystemCoinSafeSaviour/null-sys-coin-withdrawn");
+        uint256 systemCoinKeeperPayout = sub(withdrawnAmount, systemCoinsToRepay);
 
         // Approve the coin join contract to take system coins and repay debt
         systemCoin.approve(address(coinJoin), 0);
@@ -354,64 +353,57 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         // Send the fee to the keeper
-        systemCoin.transfer(keeper, keeperPayout);
+        systemCoin.transfer(keeper, systemCoinKeeperPayout);
 
         // Emit an event
-        emit SaveSAFE(keeper, collateralType, safeHandler, tokenAmountUsed);
+        emit SaveSAFE(keeper, collateralType, safeHandler, yvTokensForSave);
 
-        return (true, tokenAmountUsed, keeperPayout);
+        return (true, yvTokensForSave, 0);
     }
 
     // --- Getters ---
     /*
-    * @notice Compute whether the value of keeperPayout system coins is higher than or equal to minKeeperPayoutValue
-    * @dev Used to determine whether it's worth it for the keeper to save the SAFE in exchange for keeperPayout system coins
-    * @return A bool representing whether the value of keeperPayout system coins is >= minKeeperPayoutValue
+    * @notify Must be implemented according to the interface although it always returns false
     */
     function keeperPayoutExceedsMinValue() override public returns (bool) {
-        (uint256 priceFeedValue, bool hasValidValue) = systemCoinOrcl.getResultWithValidity();
-
-        if (either(!hasValidValue, priceFeedValue == 0)) {
-          return false;
-        }
-
-        return (minKeeperPayoutValue <= mul(keeperPayout, priceFeedValue) / WAD);
+        return false;
     }
     /*
-    * @notice Return the current value of the keeper payout
+    * @notify Must be implemented according to the interface although it always returns 0
     */
     function getKeeperPayoutValue() override public returns (uint256) {
-        (uint256 priceFeedValue, bool hasValidValue) = systemCoinOrcl.getResultWithValidity();
-
-        if (either(!hasValidValue, priceFeedValue == 0)) {
-          return 0;
-        }
-
-        return mul(keeperPayout, priceFeedValue) / WAD;
+        return 0;
     }
     /*
-    * @notice Determine whether a SAFE can be saved with the current amount of cTokens deposited as cover for it
-    * @param safeHandler The handler of the SAFE which the function takes into account
-    * @return Whether the SAFE can be saved or not
+    * @notify Returns whether a SAFE can be currently saved; in this implementation it always returns false
     */
-    function canSave(bytes32 collateralType, address safeHandler) override external returns (bool) {
-        uint256 tokenAmountUsed = tokenAmountUsedToSave(collateralType, safeHandler);
-
-        if (either(tokenAmountUsed == MAX_UINT, tokenAmountUsed == 0)) {
-            return false;
-        }
-
-        uint256 keeperCTokenPayout = div(mul(keeperPayout, WAD), cToken.exchangeRateStored());
-        return (cTokenCover[collateralType][safeHandler] >= add(tokenAmountUsed, keeperCTokenPayout));
+    function canSave(bytes32, address) override external returns (bool) {
+        return false;
     }
     /*
-    * @notice Calculate the amount of cTokens used to save a SAFE and bring its CRatio to the desired level
-    * @param collateralType The SAFE collateral type
+    * @notice Return the total amount of Yearn vault tokens used to repay a Safe's debt and renumerate a keeper
+    * @param yvTokensForSave Amount of Yearn vault tokens that have to be burned to repay a Safe's debt
+    */
+    function getTotalYVTokenBurn(uint256 yvTokensForSave) public returns (uint256) {
+        uint256 sysCoinMarketPrice = getSystemCoinMarketPrice();
+
+        if (sysCoinMarketPrice == 0) {
+            return MAX_UINT;
+        }
+
+        uint256 payoutInSystemCoins = div(mul(minKeeperPayoutValue, WAD), sysCoinMarketPrice);
+        uint256 payoutInYVTokens    = div(mul(payoutInSystemCoins, WAD), yVault.pricePerShare());
+
+        return add(payoutInYVTokens, yvTokensForSave);
+    }
+    /*
+    * @notice Calculate the amount of system coins used to save a SAFE and bring its CRatio to the desired level
+    * @param collateralType The SAFE collateral type (ignored in this implementation)
     * @param safeHandler The handler of the SAFE which the function takes into account
-    * @return The amount of cTokens used to save the SAFE and bring its CRatio to the desired level
+    * @return The amount of system coins used to save the SAFE and bring its CRatio to the desired level
     */
     function tokenAmountUsedToSave(bytes32 collateralType, address safeHandler) override public returns (uint256) {
-        if (cTokenCover[collateralType][safeHandler] == 0) return 0;
+        if (yvTokenCover[collateralType][safeHandler] == 0) return 0;
 
         (uint256 depositedCollateralToken, uint256 safeDebt) = safeEngine.safes(collateralType, safeHandler);
         (address ethFSM,,) = oracleRelayer.collateralTypes(collateralType);
@@ -438,8 +430,18 @@ contract CompoundSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
           return 0;
         } else {
           safeDebt = mul(safeDebt, getAccumulatedRate(collateralType)) / RAY;
-          return div(mul(sub(safeDebt, targetDebtAmount), WAD), cToken.exchangeRateCurrent());
+          safeDebt = sub(safeDebt, targetDebtAmount);
+          return safeDebt;
         }
+    }
+    /*
+    * @notify Fetch the system coin's market price
+    */
+    function getSystemCoinMarketPrice() public view returns (uint256) {
+        (uint256 priceFeedValue, bool hasValidValue) = systemCoinOrcl.getResultWithValidity();
+        if (!hasValidValue) return 0;
+
+        return priceFeedValue;
     }
     /*
     * @notify Returns whether a target debt amount is below the debt floor of a specific collateral type

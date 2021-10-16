@@ -25,7 +25,7 @@ import "../integrations/uniswap/swappers/UniswapV2Swapper.sol";
 
 import "../integrations/uniswap/liquidity-managers/UniswapV2LiquidityManager.sol";
 
-import "../saviours/SystemCoinUniswapV2SafeSaviour.sol";
+import "../saviours/SystemCoinTargetUniswapV2SafeSaviour.sol";
 
 abstract contract Hevm {
     function warp(uint256) virtual public;
@@ -78,7 +78,7 @@ contract MockMedianizer {
 // Users
 contract FakeUser {
     function doModifyParameters(
-      SystemCoinUniswapV2SafeSaviour saviour,
+      SystemCoinTargetUniswapV2SafeSaviour saviour,
       bytes32 parameter,
       uint256 data
     ) public {
@@ -86,7 +86,7 @@ contract FakeUser {
     }
 
     function doModifyParameters(
-      SystemCoinUniswapV2SafeSaviour saviour,
+      SystemCoinTargetUniswapV2SafeSaviour saviour,
       bytes32 parameter,
       address data
     ) public {
@@ -164,7 +164,7 @@ contract FakeUser {
     }
 
     function doDeposit(
-        SystemCoinUniswapV2SafeSaviour saviour,
+        SystemCoinTargetUniswapV2SafeSaviour saviour,
         DSToken lpToken,
         uint256 safeID,
         uint256 tokenAmount
@@ -174,7 +174,7 @@ contract FakeUser {
     }
 
     function doWithdraw(
-        SystemCoinUniswapV2SafeSaviour saviour,
+        SystemCoinTargetUniswapV2SafeSaviour saviour,
         uint256 safeID,
         uint256 lpTokenAmount,
         address dst
@@ -183,7 +183,7 @@ contract FakeUser {
     }
 
     function doGetReserves(
-        SystemCoinUniswapV2SafeSaviour saviour,
+        SystemCoinTargetUniswapV2SafeSaviour saviour,
         uint256 safeID,
         address dst
     ) public {
@@ -209,7 +209,7 @@ contract FakeUser {
     }
 }
 
-contract SystemCoinUniswapV2SafeSaviourTest is DSTest {
+contract SystemCoinTargetUniswapV2SafeSaviourTest is DSTest {
     Hevm hevm;
 
     UniswapV2Factory uniswapFactory;
@@ -239,7 +239,7 @@ contract SystemCoinUniswapV2SafeSaviourTest is DSTest {
 
     GebSafeManager safeManager;
 
-    SystemCoinUniswapV2SafeSaviour saviour;
+    SystemCoinTargetUniswapV2SafeSaviour saviour;
     SaviourCRatioSetter cRatioSetter;
     SAFESaviourRegistry saviourRegistry;
 
@@ -371,7 +371,7 @@ contract SystemCoinUniswapV2SafeSaviourTest is DSTest {
         cRatioSetter = new SaviourCRatioSetter(address(oracleRelayer), address(safeManager));
         cRatioSetter.setDefaultCRatio("eth", defaultDesiredCollateralizationRatio);
 
-        saviour = new SystemCoinUniswapV2SafeSaviour(
+        saviour = new SystemCoinTargetUniswapV2SafeSaviour(
             isSystemCoinToken0,
             address(coinJoin),
             address(collateralJoin),

@@ -21,7 +21,7 @@ import "../interfaces/ERC20Like.sol";
 
 import "../math/SafeMath.sol";
 
-contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
+contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
     // --- Auth ---
     mapping (address => uint256) public authorizedAccounts;
     /**
@@ -44,7 +44,7 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
     * @notice Checks whether msg.sender can call an authed function
     **/
     modifier isAuthorized {
-        require(authorizedAccounts[msg.sender] == 1, "CurveV1SafeSaviour/account-not-authorized");
+        require(authorizedAccounts[msg.sender] == 1, "CurveV1MaxSafeSaviour/account-not-authorized");
         _;
     }
 
@@ -71,7 +71,7 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
     modifier isAllowed {
         require(
           either(restrictUsage == 0, both(restrictUsage == 1, allowedUsers[msg.sender] == 1)),
-          "CurveV1SafeSaviour/account-not-allowed"
+          "CurveV1MaxSafeSaviour/account-not-allowed"
         );
         _;
     }
@@ -149,16 +149,16 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
         address curvePool_,
         uint256 minKeeperPayoutValue_
     ) public {
-        require(coinJoin_ != address(0), "CurveV1SafeSaviour/null-coin-join");
-        require(collateralJoin_ != address(0), "CurveV1SafeSaviour/null-collateral-join");
-        require(systemCoinOrcl_ != address(0), "CurveV1SafeSaviour/null-system-coin-oracle");
-        require(oracleRelayer_ != address(0), "CurveV1SafeSaviour/null-oracle-relayer");
-        require(liquidationEngine_ != address(0), "CurveV1SafeSaviour/null-liquidation-engine");
-        require(taxCollector_ != address(0), "CurveV1SafeSaviour/null-tax-collector");
-        require(safeManager_ != address(0), "CurveV1SafeSaviour/null-safe-manager");
-        require(saviourRegistry_ != address(0), "CurveV1SafeSaviour/null-saviour-registry");
-        require(curvePool_ != address(0), "CurveV1SafeSaviour/null-curve-pool");
-        require(minKeeperPayoutValue_ > 0, "CurveV1SafeSaviour/invalid-min-payout-value");
+        require(coinJoin_ != address(0), "CurveV1MaxSafeSaviour/null-coin-join");
+        require(collateralJoin_ != address(0), "CurveV1MaxSafeSaviour/null-collateral-join");
+        require(systemCoinOrcl_ != address(0), "CurveV1MaxSafeSaviour/null-system-coin-oracle");
+        require(oracleRelayer_ != address(0), "CurveV1MaxSafeSaviour/null-oracle-relayer");
+        require(liquidationEngine_ != address(0), "CurveV1MaxSafeSaviour/null-liquidation-engine");
+        require(taxCollector_ != address(0), "CurveV1MaxSafeSaviour/null-tax-collector");
+        require(safeManager_ != address(0), "CurveV1MaxSafeSaviour/null-safe-manager");
+        require(saviourRegistry_ != address(0), "CurveV1MaxSafeSaviour/null-saviour-registry");
+        require(curvePool_ != address(0), "CurveV1MaxSafeSaviour/null-curve-pool");
+        require(minKeeperPayoutValue_ > 0, "CurveV1MaxSafeSaviour/invalid-min-payout-value");
 
         authorizedAccounts[msg.sender] = 1;
 
@@ -180,15 +180,15 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
         systemCoinOrcl.getResultWithValidity();
         oracleRelayer.redemptionPrice();
 
-        require(collateralJoin.contractEnabled() == 1, "CurveV1SafeSaviour/join-disabled");
-        require(curvePool.redemption_price_snap() != address(0), "CurveV1SafeSaviour/null-curve-red-price-snap");
-        require(address(lpToken) != address(0), "CurveV1SafeSaviour/null-curve-lp-token");
-        require(address(safeEngine) != address(0), "CurveV1SafeSaviour/null-safe-engine");
-        require(address(systemCoin) != address(0), "CurveV1SafeSaviour/null-sys-coin");
-        require(!curvePool.is_killed(), "CurveV1SafeSaviour/pool-killed");
+        require(collateralJoin.contractEnabled() == 1, "CurveV1MaxSafeSaviour/join-disabled");
+        require(curvePool.redemption_price_snap() != address(0), "CurveV1MaxSafeSaviour/null-curve-red-price-snap");
+        require(address(lpToken) != address(0), "CurveV1MaxSafeSaviour/null-curve-lp-token");
+        require(address(safeEngine) != address(0), "CurveV1MaxSafeSaviour/null-safe-engine");
+        require(address(systemCoin) != address(0), "CurveV1MaxSafeSaviour/null-sys-coin");
+        require(!curvePool.is_killed(), "CurveV1MaxSafeSaviour/pool-killed");
 
         address[] memory coins = curvePool.coins();
-        require(coins.length > 1, "CurveV1SafeSaviour/no-pool-coins");
+        require(coins.length > 1, "CurveV1MaxSafeSaviour/no-pool-coins");
 
         for (uint i = 0; i < coins.length; i++) {
           defaultMinTokensToWithdraw.push(0);
@@ -216,14 +216,14 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
      */
     function modifyParameters(bytes32 parameter, uint256 val) external isAuthorized {
         if (parameter == "minKeeperPayoutValue") {
-            require(val > 0, "CurveV1SafeSaviour/null-min-payout");
+            require(val > 0, "CurveV1MaxSafeSaviour/null-min-payout");
             minKeeperPayoutValue = val;
         }
         else if (parameter == "restrictUsage") {
-            require(val <= 1, "CurveV1SafeSaviour/invalid-restriction");
+            require(val <= 1, "CurveV1MaxSafeSaviour/invalid-restriction");
             restrictUsage = val;
         }
-        else revert("CurveV1SafeSaviour/modify-unrecognized-param");
+        else revert("CurveV1MaxSafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, val);
     }
     /**
@@ -232,7 +232,7 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
      * @param data New address for the parameter
      */
     function modifyParameters(bytes32 parameter, address data) external isAuthorized {
-        require(data != address(0), "CurveV1SafeSaviour/null-data");
+        require(data != address(0), "CurveV1MaxSafeSaviour/null-data");
 
         if (parameter == "systemCoinOrcl") {
             systemCoinOrcl = PriceFeedLike(data);
@@ -248,7 +248,7 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
         else if (parameter == "taxCollector") {
             taxCollector = TaxCollectorLike(data);
         }
-        else revert("CurveV1SafeSaviour/modify-unrecognized-param");
+        else revert("CurveV1MaxSafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, data);
     }
 
@@ -263,7 +263,7 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
         address safeHandler = safeManager.safes(safeID);
         uint256 reserve     = underlyingReserves[safeHandler][token];
 
-        require(reserve > 0, "CurveV1SafeSaviour/no-reserves");
+        require(reserve > 0, "CurveV1MaxSafeSaviour/no-reserves");
         delete(underlyingReserves[safeHandler][token]);
 
         ERC20Like(token).transfer(dst, reserve);
@@ -279,21 +279,21 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
     */
     function deposit(uint256 safeID, uint256 lpTokenAmount)
       external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
-        require(!curvePool.is_killed(), "CurveV1SafeSaviour/pool-killed");
-        require(lpTokenAmount > 0, "CurveV1SafeSaviour/null-lp-amount");
+        require(!curvePool.is_killed(), "CurveV1MaxSafeSaviour/pool-killed");
+        require(lpTokenAmount > 0, "CurveV1MaxSafeSaviour/null-lp-amount");
 
         // Check that the SAFE exists inside GebSafeManager
         address safeHandler = safeManager.safes(safeID);
-        require(safeHandler != address(0), "CurveV1SafeSaviour/null-handler");
+        require(safeHandler != address(0), "CurveV1MaxSafeSaviour/null-handler");
 
         // Check that the SAFE has debt
         (, uint256 safeDebt) =
-          SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
-        require(safeDebt > 0, "CurveV1SafeSaviour/safe-does-not-have-debt");
+          SAFEEngineLike(address(safeEngine)).safes(collateralJoin.collateralType(), safeHandler);
+        require(safeDebt > 0, "CurveV1MaxSafeSaviour/safe-does-not-have-debt");
 
         // Update the lpToken balance used to cover the SAFE and transfer tokens to this contract
         lpTokenCover[safeHandler] = add(lpTokenCover[safeHandler], lpTokenAmount);
-        require(lpToken.transferFrom(msg.sender, address(this), lpTokenAmount), "CurveV1SafeSaviour/could-not-transfer-lp");
+        require(lpToken.transferFrom(msg.sender, address(this), lpTokenAmount), "CurveV1MaxSafeSaviour/could-not-transfer-lp");
 
         emit Deposit(msg.sender, safeHandler, lpTokenAmount);
     }
@@ -305,11 +305,11 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
     * @param dst The address that will receive the LP tokens
     */
     function withdraw(uint256 safeID, uint256 lpTokenAmount, address dst) external controlsSAFE(msg.sender, safeID) nonReentrant {
-        require(lpTokenAmount > 0, "CurveV1SafeSaviour/null-lp-amount");
+        require(lpTokenAmount > 0, "CurveV1MaxSafeSaviour/null-lp-amount");
 
         // Fetch the handler from the SAFE manager
         address safeHandler = safeManager.safes(safeID);
-        require(lpTokenCover[safeHandler] >= lpTokenAmount, "CurveV1SafeSaviour/not-enough-to-withdraw");
+        require(lpTokenCover[safeHandler] >= lpTokenAmount, "CurveV1MaxSafeSaviour/not-enough-to-withdraw");
 
         // Withdraw cover and transfer collateralToken to the caller
         lpTokenCover[safeHandler] = sub(lpTokenCover[safeHandler], lpTokenAmount);
@@ -329,15 +329,15 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
     *         system coins sent to the keeper as their payment (this implementation always returns 0)
     */
     function saveSAFE(address keeper, bytes32 collateralType, address safeHandler) override external returns (bool, uint256, uint256) {
-        require(address(liquidationEngine) == msg.sender, "CurveV1SafeSaviour/caller-not-liquidation-engine");
-        require(keeper != address(0), "CurveV1SafeSaviour/null-keeper-address");
+        require(address(liquidationEngine) == msg.sender, "CurveV1MaxSafeSaviour/caller-not-liquidation-engine");
+        require(keeper != address(0), "CurveV1MaxSafeSaviour/null-keeper-address");
 
         if (both(both(collateralType == "", safeHandler == address(0)), keeper == address(liquidationEngine))) {
             return (true, uint(-1), uint(-1));
         }
 
         // Check that the SAFE has a non null amount of LP tokens covering it
-        require(lpTokenCover[safeHandler] > 0, "CurveV1SafeSaviour/null-cover");
+        require(lpTokenCover[safeHandler] > 0, "CurveV1MaxSafeSaviour/null-cover");
 
         // Tax the collateral
         taxCollector.taxSingle(collateralType);
@@ -366,23 +366,21 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
         uint256 keeperSysCoins =
           getKeeperPayoutTokens(
             safeHandler,
-            oracleRelayer.redemptionPrice(),
             sysCoinBalance
           );
 
         // There must be tokens that go to the keeper
-        require(keeperSysCoins > 0, "CurveV1SafeSaviour/cannot-pay-keeper");
+        require(keeperSysCoins > 0, "CurveV1MaxSafeSaviour/cannot-pay-keeper");
 
         // Get the amount of tokens used to top up the SAFE
         uint256 safeDebtRepaid =
           getTokensForSaving(
             safeHandler,
-            oracleRelayer.redemptionPrice(),
             sub(sysCoinBalance, keeperSysCoins)
           );
 
         // There must be tokens used to save the SAVE
-        require(safeDebtRepaid > 0, "CurveV1SafeSaviour/cannot-save-safe");
+        require(safeDebtRepaid > 0, "CurveV1MaxSafeSaviour/cannot-save-safe");
 
         // Compute remaining balances of tokens that will go into reserves
         sysCoinBalance = sub(sysCoinBalance, add(safeDebtRepaid, keeperSysCoins));
@@ -431,7 +429,7 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
     function removeLiquidity(address safeHandler) internal {
         // Wipe storage
         delete(removedCoinLiquidity);
-        require(removedCoinLiquidity.length == 0, "CurveV1SafeSaviour/cannot-wipe-storage");
+        require(removedCoinLiquidity.length == 0, "CurveV1MaxSafeSaviour/cannot-wipe-storage");
 
         for (uint i = 0; i < poolTokens.length; i++) {
           removedCoinLiquidity.push(ERC20Like(poolTokens[i]).balanceOf(address(this)));
@@ -488,21 +486,19 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
     /*
     * @notice Return the amount of system coins used to save a SAFE
     * @param safeHandler The handler/address of the targeted SAFE
-    * @param redemptionPrice The system coin redemption price used in calculations
     * @param coinsLeft System coins left to save the SAFE after paying the liquidation keeper
     */
     function getTokensForSaving(
       address safeHandler,
-      uint256 redemptionPrice,
       uint256 coinsLeft
     ) public view returns (uint256) {
-        if (either(redemptionPrice == 0, coinsLeft == 0)) {
+        if (coinsLeft == 0) {
             return 0;
         }
 
         // Get the default CRatio for the SAFE
         (uint256 depositedCollateralToken, uint256 safeDebt) =
-          SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
+          SAFEEngineLike(address(safeEngine)).safes(collateralJoin.collateralType(), safeHandler);
         if (safeDebt == 0) {
             return 0;
         }
@@ -529,12 +525,10 @@ contract CurveV1SafeSaviour is SafeMath, SafeSaviourLike {
     /*
     * @notice Return the amount of system coins used to pay a keeper
     * @param safeHandler The handler/address of the targeted SAFE
-    * @param redemptionPrice The system coin redemption price used in calculations
     * @param sysCoinsFromLP System coins withdrawn from Uniswap
     */
     function getKeeperPayoutTokens(
       address safeHandler,
-      uint256 redemptionPrice,
       uint256 sysCoinsFromLP
     ) public view returns (uint256) {
         if (sysCoinsFromLP == 0) return 0;
