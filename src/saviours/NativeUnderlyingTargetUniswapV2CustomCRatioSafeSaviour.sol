@@ -351,7 +351,10 @@ contract NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour is Math, SafeMat
         );
 
         // Compute how many coins were withdrawn as well as the amount of ETH that's in this contract
-        sysCoinBalance                = sub(systemCoin.balanceOf(address(this)), sysCoinBalance);
+        sysCoinBalance                = add(
+          sub(systemCoin.balanceOf(address(this)), sysCoinBalance),
+          underlyingReserves[safeHandler]
+        );
         uint256 collateralCoinBalance = collateralToken.balanceOf(address(this));
 
         // Get the amounts of tokens sent to the keeper as payment
@@ -376,9 +379,7 @@ contract NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour is Math, SafeMat
 
         // Update reserves
         if (sysCoinBalance > 0) {
-          underlyingReserves[safeHandler] = add(
-            underlyingReserves[safeHandler], sysCoinBalance
-          );
+          underlyingReserves[safeHandler] = sysCoinBalance;
         }
 
         // Save the SAFE

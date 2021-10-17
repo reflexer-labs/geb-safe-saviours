@@ -254,6 +254,28 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
 
     // --- Transferring Reserves ---
     /*
+    * @notice Get back multiple tokens that were withdrawn from Curve and not used to save a specific SAFE
+    * @param safeID The ID of the safe that was previously saved and has leftover funds that can be withdrawn
+    * @param tokens The addresses of the tokens being transferred
+    * @param dst The address that will receive the reserve system coins
+    */
+    function getReserves(uint256 safeID, address[] calldata tokens, address dst)
+      external controlsSAFE(msg.sender, safeID) nonReentrant {
+        require(tokens.length > 0, "CurveV1MaxSafeSaviour/no-tokens");
+        address safeHandler = safeManager.safes(safeID);
+
+        uint256 reserve;
+        for (uint i = 0; i < tokens.length; i++) {
+          reserve = underlyingReserves[safeHandler][tokens[i]];
+          if (reserve == 0) continue;
+
+          delete(underlyingReserves[safeHandler][tokens[i]]);
+          ERC20Like(tokens[i]).transfer(dst, reserve);
+
+          emit GetReserves(msg.sender, safeHandler, tokens[i], reserve, dst);
+        }
+    }
+    /*
     * @notify Get back tokens that were withdrawn from Curve and not used to save a specific SAFE
     * @param safeID The ID of the safe that was previously saved and has leftover funds that can be withdrawn
     * @param token The address of the token being transferred
@@ -337,7 +359,10 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         // Check that the SAFE has a non null amount of LP tokens covering it
-        require(lpTokenCover[safeHandler] > 0, "CurveV1MaxSafeSaviour/null-cover");
+        require(
+          either(lpTokenCover[safeHandler] > 0, underlyingReserves[safeHandler][address(systemCoin)] > 0),
+          "CurveV1MaxSafeSaviour/null-cover"
+        );
 
         // Tax the collateral
         taxCollector.taxSingle(collateralType);
@@ -350,7 +375,7 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         removeLiquidity(safeHandler);
 
         // Record tokens that are not system coins and put them in reserves
-        uint256 sysCoinBalance;
+        uint256 sysCoinBalance = underlyingReserves[safeHandler][address(systemCoin)];
 
         for (uint i = 0; i < removedCoinLiquidity.length; i++) {
           if (both(poolTokens[i] != address(systemCoin), removedCoinLiquidity[i] > 0)) {
@@ -358,7 +383,7 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
               underlyingReserves[safeHandler][poolTokens[i]], removedCoinLiquidity[i]
             );
           } else {
-            sysCoinBalance = removedCoinLiquidity[i];
+            sysCoinBalance = add(sysCoinBalance, removedCoinLiquidity[i]);
           }
         }
 
@@ -387,9 +412,7 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
 
         // Update system coin reserves
         if (sysCoinBalance > 0) {
-          underlyingReserves[safeHandler][address(systemCoin)] = add(
-            underlyingReserves[safeHandler][address(systemCoin)], sysCoinBalance
-          );
+          underlyingReserves[safeHandler][address(systemCoin)] = sysCoinBalance;
         }
 
         // Save the SAFE

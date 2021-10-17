@@ -368,7 +368,10 @@ contract YearnV3MaxSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         // Send the fee to the keeper
-        systemCoin.transfer(keeper, systemCoinKeeperPayout);
+        require(
+          systemCoin.transfer(keeper, systemCoin.balanceOf(address(this))),
+          "YearnV3MaxSystemCoinSafeSaviour/cannot-pay-keeper"
+        );
 
         // Emit an event
         emit SaveSAFE(keeper, collateralType, safeHandler, yvTokensForSave);

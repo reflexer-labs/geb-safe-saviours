@@ -380,16 +380,18 @@ contract NativeUnderlyingTargetUniswapV2SafeSaviour is SafeMath, SafeSaviourLike
         );
 
         // Compute remaining balances of tokens that will go into reserves
-        sysCoinBalance        = sub(sub(systemCoin.balanceOf(address(this)), sysCoinBalance), add(safeDebtRepaid, keeperSysCoins));
+        sysCoinBalance        = sub(
+          add(sub(systemCoin.balanceOf(address(this)), sysCoinBalance), underlyingReserves[safeHandler].systemCoins),
+          add(safeDebtRepaid, keeperSysCoins)
+        );
         collateralCoinBalance = sub(
-          sub(collateralToken.balanceOf(address(this)), collateralCoinBalance), add(safeCollateralAdded, keeperCollateralCoins)
+          add(sub(collateralToken.balanceOf(address(this)), collateralCoinBalance), underlyingReserves[safeHandler].collateralCoins), 
+          add(safeCollateralAdded, keeperCollateralCoins)
         );
 
         // Update reserves
         if (sysCoinBalance > 0) {
-          underlyingReserves[safeHandler].systemCoins = add(
-            underlyingReserves[safeHandler].systemCoins, sysCoinBalance
-          );
+          underlyingReserves[safeHandler].systemCoins = sysCoinBalance;
         }
         if (collateralCoinBalance > 0) {
           underlyingReserves[safeHandler].collateralCoins = add(

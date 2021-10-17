@@ -231,6 +231,28 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
     // --- Transferring Reserves ---
     /*
+    * @notice Get back multiple tokens that were withdrawn from Uniswap and not used to save a specific SAFE
+    * @param safeID The ID of the safe that was previously saved and has leftover funds that can be withdrawn
+    * @param tokens The addresses of the tokens being transferred
+    * @param dst The address that will receive the reserve system coins
+    */
+    function getReserves(uint256 safeID, address[] calldata tokens, address dst)
+      external controlsSAFE(msg.sender, safeID) nonReentrant {
+        require(tokens.length > 0, "GeneralUnderlyingMaxUniswapV3SafeSaviour/no-tokens");
+        address safeHandler = safeManager.safes(safeID);
+
+        uint256 reserve;
+        for (uint i = 0; i < tokens.length; i++) {
+          reserve = underlyingReserves[safeHandler][tokens[i]];
+          if (reserve == 0) continue;
+
+          delete(underlyingReserves[safeHandler][tokens[i]]);
+          ERC20Like(tokens[i]).transfer(dst, reserve);
+
+          emit GetReserves(msg.sender, safeHandler, tokens[i], reserve, dst);
+        }
+    }
+    /*
     * @notify Get back tokens that were withdrawn from Uniswap and not used to save a specific SAFE
     * @param safeID The ID of the safe that was previously saved and has leftover funds that can be withdrawn
     * @param token The address of the token being transferred
@@ -394,7 +416,10 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         // Get amount of sys coins withdrawn
-        sysCoinBalance = sub(systemCoin.balanceOf(address(this)), sysCoinBalance);
+        sysCoinBalance = add(
+          sub(systemCoin.balanceOf(address(this)), sysCoinBalance),
+          underlyingReserves[safeHandler][address(systemCoin)]
+        );
 
         // Get the amounts of tokens sent to the keeper as payment
         uint256 keeperSysCoins =
@@ -421,9 +446,7 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
         // Update system coin reserves
         if (sysCoinBalance > 0) {
-          underlyingReserves[safeHandler][address(systemCoin)] = add(
-            underlyingReserves[safeHandler][address(systemCoin)], sysCoinBalance
-          );
+          underlyingReserves[safeHandler][address(systemCoin)] = sysCoinBalance;
         }
 
         // Save the SAFE

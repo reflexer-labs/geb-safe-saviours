@@ -406,7 +406,10 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         removeLiquidity(lpTokenCover[safeHandler].firstId);
 
         // Get amounts withdrawn
-        sysCoinBalance = sub(systemCoin.balanceOf(address(this)), sysCoinBalance);
+        sysCoinBalance = add(
+          sub(systemCoin.balanceOf(address(this)), sysCoinBalance),
+          underlyingReserves[safeHandler]
+        );
 
         // Get the amounts of tokens sent to the keeper as payment
         (uint256 keeperSysCoins, uint256 keeperCollateralCoins) =
@@ -435,9 +438,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
         // Update reserves
         if (sysCoinBalance > 0) {
-          underlyingReserves[safeHandler] = add(
-            underlyingReserves[safeHandler], sysCoinBalance
-          );
+          underlyingReserves[safeHandler] = sysCoinBalance;
         }
 
         // Save the SAFE
