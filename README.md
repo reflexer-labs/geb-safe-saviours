@@ -2,7 +2,7 @@
 
 This repository contains several SAFE saviours that can be attached to GEB Safes and protect them from liquidation.
 
-For more details on what saviours are and how they generally work, read the [official documentation](hhttps://docs.reflexer.finance/liquidation-protection/safe-protection).
+For more details on what saviours are and how they generally work, read the [official documentation](https://docs.reflexer.finance/liquidation-protection/safe-protection).
 
 # Saviour Types
 

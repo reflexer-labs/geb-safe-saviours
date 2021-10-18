@@ -367,6 +367,9 @@ contract YearnV3MaxSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
           );
         }
 
+        // Check the SAFE is saved
+        require(safeIsAfloat(collateralType, safeHandler), "YearnV3MaxSystemCoinSafeSaviour/safe-not-saved");
+
         // Send the fee to the keeper
         require(
           systemCoin.transfer(keeper, systemCoin.balanceOf(address(this))),
@@ -479,6 +482,18 @@ contract YearnV3MaxSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     function debtBelowFloor(bytes32 collateralType, uint256 targetDebtAmount) public view returns (bool) {
         (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralType);
         return (mul(targetDebtAmount, RAY) < debtFloor);
+    }
+    /*
+    * @notify Returns whether a SAFE is afloat
+    * @param safeHandler The handler of the SAFE to verify
+    */
+    function safeIsAfloat(bytes32 collateralType, address safeHandler) public view returns (bool) {
+        (, uint256 accumulatedRate, , , , uint256 liquidationPrice) = safeEngine.collateralTypes(collateralType);
+        (uint256 safeCollateral, uint256 safeDebt) = safeEngine.safes(collateralType, safeHandler);
+
+        return (
+          mul(safeCollateral, liquidationPrice) > mul(safeDebt, accumulatedRate)
+        );
     }
     /*
     * @notify Get the accumulated interest rate for a specific collateral type as well as its current liquidation price

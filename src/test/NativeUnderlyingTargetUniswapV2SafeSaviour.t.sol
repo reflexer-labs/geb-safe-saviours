@@ -228,7 +228,6 @@ contract NativeUnderlyingTargetUniswapV2SafeSaviourTest is DSTest {
     BasicCollateralJoin collateralJoin;
 
     CoinJoin coinJoin;
-    CoinJoin systemCoinJoin;
 
     EnglishCollateralAuctionHouse collateralAuctionHouse;
 

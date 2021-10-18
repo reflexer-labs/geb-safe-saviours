@@ -372,7 +372,7 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
         // Check that the SAFE has a non null amount of NFT tokens covering it
         require(
-          lpTokenCover[safeHandler].firstId != 0,
+          either(lpTokenCover[safeHandler].firstId != 0, underlyingReserves[safeHandler][address(systemCoin)] > 0),
           "GeneralUnderlyingMaxUniswapV3SafeSaviour/no-cover"
         );
 
@@ -468,6 +468,9 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
             -int256(nonAdjustedSystemCoinsToRepay)
           );
         }
+
+        // Check the SAFE is saved
+        require(safeIsAfloat(safeHandler), "GeneralUnderlyingMaxUniswapV3SafeSaviour/safe-not-saved");
 
         // Pay keeper
         systemCoin.transfer(keeper, keeperSysCoins);
@@ -618,6 +621,18 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         return 0;
+    }
+    /*
+    * @notify Returns whether a SAFE is afloat
+    * @param safeHandler The handler of the SAFE to verify
+    */
+    function safeIsAfloat(address safeHandler) public view returns (bool) {
+        (, uint256 accumulatedRate, , , , uint256 liquidationPrice) = safeEngine.collateralTypes(collateralJoin.collateralType());
+        (uint256 safeCollateral, uint256 safeDebt) = safeEngine.safes(collateralJoin.collateralType(), safeHandler);
+
+        return (
+          mul(safeCollateral, liquidationPrice) > mul(safeDebt, accumulatedRate)
+        );
     }
     /*
     * @notify Get the accumulated interest rate for a specific collateral type as well as its current liquidation price

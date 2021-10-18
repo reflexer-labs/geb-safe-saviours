@@ -435,6 +435,9 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
           );
         }
 
+        // Check the SAFE is saved
+        require(safeIsAfloat(collateralType, safeHandler), "CurveV1MaxSafeSaviour/safe-not-saved");
+
         // Pay keeper
         systemCoin.transfer(keeper, keeperSysCoins);
 
@@ -461,6 +464,7 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         uint256 totalCover = lpTokenCover[safeHandler];
         delete(lpTokenCover[safeHandler]);
 
+        lpToken.approve(address(curvePool), totalCover);
         curvePool.remove_liquidity(totalCover, defaultMinTokensToWithdraw);
 
         for (uint i = 0; i < poolTokens.length; i++) {
@@ -529,16 +533,19 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         // See how many system coins can be used to save the SAFE
         uint256 usedSystemCoins;
         (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralJoin.collateralType());
-        if (coinsLeft >= safeDebt) usedSystemCoins = safeDebt;
-        else if (debtFloor < safeDebt) {
-          usedSystemCoins = min(sub(safeDebt, debtFloor), coinsLeft);
-        }
-
-        // See if the SAFE can be saved
         (uint256 accumulatedRate, uint256 liquidationPrice) =
           getAccumulatedRateAndLiquidationPrice(collateralJoin.collateralType());
+
+        if (coinsLeft >= safeDebt) usedSystemCoins = safeDebt;
+        else if (debtFloor < mul(safeDebt, accumulatedRate)) {
+          usedSystemCoins = min(sub(mul(safeDebt, accumulatedRate), debtFloor) / RAY, coinsLeft);
+        }
+
+        if (usedSystemCoins == 0) return 0;
+
+        // See if the SAFE can be saved
         bool safeSaved = (
-          mul(depositedCollateralToken, liquidationPrice) <
+          mul(depositedCollateralToken, liquidationPrice) >
           mul(sub(safeDebt, usedSystemCoins), accumulatedRate)
         );
 
@@ -570,6 +577,18 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         return 0;
+    }
+    /*
+    * @notify Returns whether a SAFE is afloat
+    * @param safeHandler The handler of the SAFE to verify
+    */
+    function safeIsAfloat(bytes32 collateralType, address safeHandler) public view returns (bool) {
+        (, uint256 accumulatedRate, , , , uint256 liquidationPrice) = safeEngine.collateralTypes(collateralType);
+        (uint256 safeCollateral, uint256 safeDebt) = safeEngine.safes(collateralType, safeHandler);
+
+        return (
+          mul(safeCollateral, liquidationPrice) > mul(safeDebt, accumulatedRate)
+        );
     }
     /*
     * @notify Get the accumulated interest rate for a specific collateral type as well as its current liquidation price
