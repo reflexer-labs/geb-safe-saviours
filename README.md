@@ -13,4 +13,4 @@ For more details on what saviours are and how they generally work, read the [off
 - **NativeUnderlyingMaxUniswapV2SafeSaviour**: this saviour withdraws liquidity from Uniswap V2 and repays debt and/or tops up a Safe in order to save it
 - **NativeUnderlyingTargetUniswapV3SafeSaviour** and **NativeUnderlyingMaxUniswapV3SafeSaviour**: these saviours withdraw liquidity from Uniswap V3 and repay debt and top up a Safe in order to save it
 - **SystemCoinTargetUniswapV2SafeSaviour**: this saviour withdraws liquidity from Uniswap V2, swaps one of the tokens for the Safe's collateral and repays debt and/or tops up the Safe in order to save it
-- **YearnV3TargetSystemCoinSafeSaviour** and **YearnV3MaxSystemCoinSafeSaviour**: these saviours lend system coins in a Yearn v3 strategy vault and repay a Safe's debt when it's liquidated
+- **YearnV3MaxSystemCoinSafeSaviour**: this saviour lends system coins in a Yearn v3 strategy vault and repays a Safe's debt when it's liquidated
