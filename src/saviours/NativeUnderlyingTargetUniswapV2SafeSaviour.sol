@@ -340,7 +340,10 @@ contract NativeUnderlyingTargetUniswapV2SafeSaviour is SafeMath, SafeSaviourLike
         require(collateralType == collateralJoin.collateralType(), "NativeUnderlyingTargetUniswapV2SafeSaviour/invalid-collateral-type");
 
         // Check that the SAFE has a non null amount of LP tokens covering it
-        require(lpTokenCover[safeHandler] > 0, "NativeUnderlyingTargetUniswapV2SafeSaviour/null-cover");
+        require(
+          either(lpTokenCover[safeHandler] > 0, either(underlyingReserves[safeHandler].systemCoins > 0, underlyingReserves[safeHandler].collateralCoins > 0)),
+          "NativeUnderlyingTargetUniswapV2SafeSaviour/null-cover"
+        );
 
         // Tax the collateral
         taxCollector.taxSingle(collateralType);
@@ -370,14 +373,16 @@ contract NativeUnderlyingTargetUniswapV2SafeSaviour is SafeMath, SafeSaviourLike
         uint256 sysCoinBalance        = systemCoin.balanceOf(address(this));
         uint256 collateralCoinBalance = collateralToken.balanceOf(address(this));
 
-        lpToken.approve(address(liquidityManager), totalCover);
-        liquidityManager.removeLiquidity(totalCover, 0, 0, address(this));
+        if (totalCover > 0) {
+          lpToken.approve(address(liquidityManager), totalCover);
+          liquidityManager.removeLiquidity(totalCover, 0, 0, address(this));
 
-        // Checks after removing liquidity
-        require(
-          either(systemCoin.balanceOf(address(this)) > sysCoinBalance, collateralToken.balanceOf(address(this)) > collateralCoinBalance),
-          "NativeUnderlyingTargetUniswapV2SafeSaviour/faulty-remove-liquidity"
-        );
+          // Checks after removing liquidity
+          require(
+            either(systemCoin.balanceOf(address(this)) > sysCoinBalance, collateralToken.balanceOf(address(this)) > collateralCoinBalance),
+            "NativeUnderlyingTargetUniswapV2SafeSaviour/faulty-remove-liquidity"
+          );
+        }
 
         // Compute remaining balances of tokens that will go into reserves
         sysCoinBalance        = sub(
@@ -385,7 +390,7 @@ contract NativeUnderlyingTargetUniswapV2SafeSaviour is SafeMath, SafeSaviourLike
           add(safeDebtRepaid, keeperSysCoins)
         );
         collateralCoinBalance = sub(
-          add(sub(collateralToken.balanceOf(address(this)), collateralCoinBalance), underlyingReserves[safeHandler].collateralCoins), 
+          add(sub(collateralToken.balanceOf(address(this)), collateralCoinBalance), underlyingReserves[safeHandler].collateralCoins),
           add(safeCollateralAdded, keeperCollateralCoins)
         );
 
@@ -394,9 +399,7 @@ contract NativeUnderlyingTargetUniswapV2SafeSaviour is SafeMath, SafeSaviourLike
           underlyingReserves[safeHandler].systemCoins = sysCoinBalance;
         }
         if (collateralCoinBalance > 0) {
-          underlyingReserves[safeHandler].collateralCoins = add(
-            underlyingReserves[safeHandler].collateralCoins, collateralCoinBalance
-          );
+          underlyingReserves[safeHandler].collateralCoins = collateralCoinBalance;
         }
 
         // Save the SAFE
@@ -463,7 +466,8 @@ contract NativeUnderlyingTargetUniswapV2SafeSaviour is SafeMath, SafeSaviourLike
         return false;
     }
     /*
-    * @notice Determine whether a SAFE can be saved with the current amount of lpTokenCover deposited as cover for it
+    * @notice Determine whether a SAFE can be saved with the current amount of lpTokenCover or the reserves
+    *         deposited as cover for it
     * @param safeHandler The handler of the SAFE which the function takes into account
     * @return Whether the SAFE can be saved or not
     */

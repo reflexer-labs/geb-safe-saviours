@@ -30,12 +30,16 @@ contract YearnVault3Mock is YVault3Like, DSToken {
 
     // --- Core Logic ---
     function deposit(uint256 amount, address receiver) external override returns (uint256) {
-        return 0;
+        token.transferFrom(msg.sender, address(this), amount);
+        mint(receiver, amount * WAD / sharePrice);
+        return amount * WAD / sharePrice;
     }
 
     function withdraw(uint256 amount, address receiver, uint256 maxLoss) external override returns (uint256) {
         if (!canTransferToken) revert();
-        token.transfer(receiver, amount);
+        burn(msg.sender, amount);
+        token.transfer(receiver, amount * sharePrice / WAD);
+        return amount * sharePrice / WAD;
     }
 
     function pricePerShare() external override returns (uint256) {

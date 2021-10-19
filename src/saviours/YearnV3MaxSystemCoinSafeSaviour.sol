@@ -92,8 +92,6 @@ contract YearnV3MaxSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     CoinJoinLike                public coinJoin;
     // Oracle providing the system coin price feed
     PriceFeedLike               public systemCoinOrcl;
-    // Contract that defines desired CRatios for each Safe after it is saved
-    SaviourCRatioSetterLike     public cRatioSetter;
 
     uint256                     public constant MAX_LOSS = 10_000; // 10k basis points
 
@@ -122,7 +120,6 @@ contract YearnV3MaxSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
 
     constructor(
       address coinJoin_,
-      address cRatioSetter_,
       address systemCoinOrcl_,
       address liquidationEngine_,
       address taxCollector_,
@@ -133,7 +130,6 @@ contract YearnV3MaxSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
       uint256 minKeeperPayoutValue_
     ) public {
         require(coinJoin_ != address(0), "YearnV3MaxSystemCoinSafeSaviour/null-coin-join");
-        require(cRatioSetter_ != address(0), "YearnV3MaxSystemCoinSafeSaviour/null-cratio-setter");
         require(systemCoinOrcl_ != address(0), "YearnV3MaxSystemCoinSafeSaviour/null-system-coin-oracle");
         require(oracleRelayer_ != address(0), "YearnV3MaxSystemCoinSafeSaviour/null-oracle-relayer");
         require(liquidationEngine_ != address(0), "YearnV3MaxSystemCoinSafeSaviour/null-liquidation-engine");
@@ -148,7 +144,6 @@ contract YearnV3MaxSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         minKeeperPayoutValue = minKeeperPayoutValue_;
 
         coinJoin             = CoinJoinLike(coinJoin_);
-        cRatioSetter         = SaviourCRatioSetterLike(cRatioSetter_);
         liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
         taxCollector         = TaxCollectorLike(taxCollector_);
 
@@ -239,9 +234,7 @@ contract YearnV3MaxSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
     */
     function deposit(bytes32 collateralType, uint256 safeID, uint256 systemCoinAmount)
       external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
-        uint256 defaultCRatio = cRatioSetter.defaultDesiredCollateralizationRatios(collateralType);
         require(systemCoinAmount > 0, "YearnV3MaxSystemCoinSafeSaviour/null-system-coin-amount");
-        require(defaultCRatio > 0, "YearnV3MaxSystemCoinSafeSaviour/collateral-not-set");
 
         // Check that the SAFE exists inside GebSafeManager
         address safeHandler = safeManager.safes(safeID);

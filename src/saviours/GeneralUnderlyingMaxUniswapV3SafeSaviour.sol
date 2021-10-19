@@ -404,7 +404,7 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
             );
           }
         }
-        {
+        if (lpTokenCover[safeHandler].firstId != 0) {
           (address nonSysCoinToken, uint256 nonSysCoinBalance) =
             removeLiquidity(lpTokenCover[safeHandler].firstId);
 
@@ -445,9 +445,7 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         sysCoinBalance = sub(sysCoinBalance, add(safeDebtRepaid, keeperSysCoins));
 
         // Update system coin reserves
-        if (sysCoinBalance > 0) {
-          underlyingReserves[safeHandler][address(systemCoin)] = sysCoinBalance;
-        }
+        underlyingReserves[safeHandler][address(systemCoin)] = sysCoinBalance;
 
         // Save the SAFE
         {

@@ -21,7 +21,7 @@ import "../integrations/uniswap/uni-v2/UniswapV2Router02.sol";
 
 import "../integrations/uniswap/liquidity-managers/UniswapV2LiquidityManager.sol";
 
-import "../saviours/NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour.sol";
+import "../saviours/NativeUnderlyingMaxUniswapV2SafeSaviour.sol";
 
 abstract contract Hevm {
     function warp(uint256) virtual public;
@@ -74,7 +74,7 @@ contract MockMedianizer {
 // Users
 contract FakeUser {
     function doModifyParameters(
-      NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour saviour,
+      NativeUnderlyingMaxUniswapV2SafeSaviour saviour,
       bytes32 parameter,
       uint256 data
     ) public {
@@ -82,7 +82,7 @@ contract FakeUser {
     }
 
     function doModifyParameters(
-      NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour saviour,
+      NativeUnderlyingMaxUniswapV2SafeSaviour saviour,
       bytes32 parameter,
       address data
     ) public {
@@ -151,7 +151,7 @@ contract FakeUser {
     }
 
     function doDeposit(
-        NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour saviour,
+        NativeUnderlyingMaxUniswapV2SafeSaviour saviour,
         DSToken lpToken,
         uint256 safeID,
         uint256 tokenAmount
@@ -161,7 +161,7 @@ contract FakeUser {
     }
 
     function doWithdraw(
-        NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour saviour,
+        NativeUnderlyingMaxUniswapV2SafeSaviour saviour,
         uint256 safeID,
         uint256 lpTokenAmount,
         address dst
@@ -179,7 +179,7 @@ contract FakeUser {
     }
 
     function doGetReserves(
-        NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour saviour,
+        NativeUnderlyingMaxUniswapV2SafeSaviour saviour,
         uint256 safeID,
         address dst
     ) public {
@@ -187,7 +187,7 @@ contract FakeUser {
     }
 
     function doSetCRatioThreshold(
-        NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour saviour,
+        NativeUnderlyingMaxUniswapV2SafeSaviour saviour,
         uint safeID,
         uint cRatio
     ) public {
@@ -195,7 +195,7 @@ contract FakeUser {
     }
 }
 
-contract NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviourTest is DSTest {
+contract NativeUnderlyingMaxUniswapV2SafeSaviourTest is DSTest {
     Hevm hevm;
 
     UniswapV2Factory uniswapFactory;
@@ -222,7 +222,7 @@ contract NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviourTest is DSTest {
 
     GebSafeManager safeManager;
 
-    NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour saviour;
+    NativeUnderlyingMaxUniswapV2SafeSaviour saviour;
 
     MockMedianizer systemCoinOracle;
     MockMedianizer ethFSM;
@@ -338,7 +338,7 @@ contract NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviourTest is DSTest {
         liquidityManager = new UniswapV2LiquidityManager(address(raiWETHPair), address(uniswapRouter));
 
         // Saviour infra
-        saviour = new NativeUnderlyingTargetUniswapV2CustomCRatioSafeSaviour(
+        saviour = new NativeUnderlyingMaxUniswapV2SafeSaviour(
             isSystemCoinToken0,
             address(coinJoin),
             address(collateralJoin),

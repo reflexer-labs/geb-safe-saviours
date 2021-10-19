@@ -94,7 +94,7 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
     address[]                                       public poolTokens;
 
     // Amount of LP tokens currently protecting each position
-    mapping(address => uint256)                     public lpTokenCover;
+    mapping(bytes32 => mapping(address => uint256)) public lpTokenCover;
     // Amount of tokens that weren't used to save SAFEs and Safe owners can now get back
     mapping(address => mapping(address => uint256)) public underlyingReserves;
 
@@ -104,8 +104,6 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
     ERC20Like                                       public systemCoin;
     // The system coin join contract
     CoinJoinLike                                    public coinJoin;
-    // The collateral join contract for adding collateral in the system
-    CollateralJoinLike                              public collateralJoin;
     // The Curve LP token
     ERC20Like                                       public lpToken;
     // Oracle providing the system coin price feed
@@ -120,11 +118,13 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
     event ModifyParameters(bytes32 indexed parameter, address data);
     event Deposit(
       address indexed caller,
+      bytes32 collateralType,
       address indexed safeHandler,
       uint256 lpTokenAmount
     );
     event Withdraw(
       address indexed caller,
+      bytes32 collateralType,
       address indexed safeHandler,
       address dst,
       uint256 lpTokenAmount
@@ -139,7 +139,6 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
 
     constructor(
         address coinJoin_,
-        address collateralJoin_,
         address systemCoinOrcl_,
         address liquidationEngine_,
         address taxCollector_,
@@ -150,7 +149,6 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         uint256 minKeeperPayoutValue_
     ) public {
         require(coinJoin_ != address(0), "CurveV1MaxSafeSaviour/null-coin-join");
-        require(collateralJoin_ != address(0), "CurveV1MaxSafeSaviour/null-collateral-join");
         require(systemCoinOrcl_ != address(0), "CurveV1MaxSafeSaviour/null-system-coin-oracle");
         require(oracleRelayer_ != address(0), "CurveV1MaxSafeSaviour/null-oracle-relayer");
         require(liquidationEngine_ != address(0), "CurveV1MaxSafeSaviour/null-liquidation-engine");
@@ -165,7 +163,6 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         minKeeperPayoutValue = minKeeperPayoutValue_;
 
         coinJoin             = CoinJoinLike(coinJoin_);
-        collateralJoin       = CollateralJoinLike(collateralJoin_);
         liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
         taxCollector         = TaxCollectorLike(taxCollector_);
         oracleRelayer        = OracleRelayerLike(oracleRelayer_);
@@ -180,7 +177,6 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         systemCoinOrcl.getResultWithValidity();
         oracleRelayer.redemptionPrice();
 
-        require(collateralJoin.contractEnabled() == 1, "CurveV1MaxSafeSaviour/join-disabled");
         require(curvePool.redemption_price_snap() != address(0), "CurveV1MaxSafeSaviour/null-curve-red-price-snap");
         require(address(lpToken) != address(0), "CurveV1MaxSafeSaviour/null-curve-lp-token");
         require(address(safeEngine) != address(0), "CurveV1MaxSafeSaviour/null-safe-engine");
@@ -296,10 +292,11 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
     // --- Adding/Withdrawing Cover ---
     /*
     * @notice Deposit lpToken in the contract in order to provide cover for a specific SAFE managed by the SAFE Manager
+    * @param collateralType The collateral type used in the SAFE
     * @param safeID The ID of the SAFE to protect. This ID should be registered inside GebSafeManager
     * @param lpTokenAmount The amount of lpToken to deposit
     */
-    function deposit(uint256 safeID, uint256 lpTokenAmount)
+    function deposit(bytes32 collateralType, uint256 safeID, uint256 lpTokenAmount)
       external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
         require(!curvePool.is_killed(), "CurveV1MaxSafeSaviour/pool-killed");
         require(lpTokenAmount > 0, "CurveV1MaxSafeSaviour/null-lp-amount");
@@ -310,34 +307,36 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
 
         // Check that the SAFE has debt
         (, uint256 safeDebt) =
-          SAFEEngineLike(address(safeEngine)).safes(collateralJoin.collateralType(), safeHandler);
+          SAFEEngineLike(address(safeEngine)).safes(collateralType, safeHandler);
         require(safeDebt > 0, "CurveV1MaxSafeSaviour/safe-does-not-have-debt");
 
         // Update the lpToken balance used to cover the SAFE and transfer tokens to this contract
-        lpTokenCover[safeHandler] = add(lpTokenCover[safeHandler], lpTokenAmount);
+        lpTokenCover[collateralType][safeHandler] = add(lpTokenCover[collateralType][safeHandler], lpTokenAmount);
         require(lpToken.transferFrom(msg.sender, address(this), lpTokenAmount), "CurveV1MaxSafeSaviour/could-not-transfer-lp");
 
-        emit Deposit(msg.sender, safeHandler, lpTokenAmount);
+        emit Deposit(msg.sender, collateralType, safeHandler, lpTokenAmount);
     }
     /*
     * @notice Withdraw lpToken from the contract and provide less cover for a SAFE
     * @dev Only an address that controls the SAFE inside the SAFE Manager can call this
+    * @paranm collateralType The collateral type in the covered SAFE
     * @param safeID The ID of the SAFE to remove cover from. This ID should be registered inside the SAFE Manager
     * @param lpTokenAmount The amount of lpToken to withdraw
     * @param dst The address that will receive the LP tokens
     */
-    function withdraw(uint256 safeID, uint256 lpTokenAmount, address dst) external controlsSAFE(msg.sender, safeID) nonReentrant {
+    function withdraw(bytes32 collateralType, uint256 safeID, uint256 lpTokenAmount, address dst)
+      external controlsSAFE(msg.sender, safeID) nonReentrant {
         require(lpTokenAmount > 0, "CurveV1MaxSafeSaviour/null-lp-amount");
 
         // Fetch the handler from the SAFE manager
         address safeHandler = safeManager.safes(safeID);
-        require(lpTokenCover[safeHandler] >= lpTokenAmount, "CurveV1MaxSafeSaviour/not-enough-to-withdraw");
+        require(lpTokenCover[collateralType][safeHandler] >= lpTokenAmount, "CurveV1MaxSafeSaviour/not-enough-to-withdraw");
 
         // Withdraw cover and transfer collateralToken to the caller
-        lpTokenCover[safeHandler] = sub(lpTokenCover[safeHandler], lpTokenAmount);
+        lpTokenCover[collateralType][safeHandler] = sub(lpTokenCover[collateralType][safeHandler], lpTokenAmount);
         lpToken.transfer(dst, lpTokenAmount);
 
-        emit Withdraw(msg.sender, safeHandler, dst, lpTokenAmount);
+        emit Withdraw(msg.sender, collateralType, safeHandler, dst, lpTokenAmount);
     }
 
     // --- Saving Logic ---
@@ -360,7 +359,7 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
 
         // Check that the SAFE has a non null amount of LP tokens covering it
         require(
-          either(lpTokenCover[safeHandler] > 0, underlyingReserves[safeHandler][address(systemCoin)] > 0),
+          either(lpTokenCover[collateralType][safeHandler] > 0, underlyingReserves[safeHandler][address(systemCoin)] > 0),
           "CurveV1MaxSafeSaviour/null-cover"
         );
 
@@ -371,8 +370,8 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         saviourRegistry.markSave(collateralType, safeHandler);
 
         // Remove all liquidity from Curve
-        uint256 totalCover = lpTokenCover[safeHandler];
-        removeLiquidity(safeHandler);
+        uint256 totalCover = lpTokenCover[collateralType][safeHandler];
+        removeLiquidity(collateralType, safeHandler);
 
         // Record tokens that are not system coins and put them in reserves
         uint256 sysCoinBalance = underlyingReserves[safeHandler][address(systemCoin)];
@@ -400,6 +399,7 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         // Get the amount of tokens used to top up the SAFE
         uint256 safeDebtRepaid =
           getTokensForSaving(
+            collateralType,
             safeHandler,
             sub(sysCoinBalance, keeperSysCoins)
           );
@@ -411,9 +411,7 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         sysCoinBalance = sub(sysCoinBalance, add(safeDebtRepaid, keeperSysCoins));
 
         // Update system coin reserves
-        if (sysCoinBalance > 0) {
-          underlyingReserves[safeHandler][address(systemCoin)] = sysCoinBalance;
-        }
+        underlyingReserves[safeHandler][address(systemCoin)] = sysCoinBalance;
 
         // Save the SAFE
         {
@@ -450,19 +448,22 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
     // --- Internal Logic ---
     /**
      * @notice Remove all Curve liquidity protecting a specific SAFE and return the amounts of all returned tokens
+     * @param collateralType The collateral type of the SAFE whose cover is now used
      * @param safeHandler The handler of the SAFE for which we withdraw Curve liquidity
      */
-    function removeLiquidity(address safeHandler) internal {
+    function removeLiquidity(bytes32 collateralType, address safeHandler) internal {
         // Wipe storage
         delete(removedCoinLiquidity);
         require(removedCoinLiquidity.length == 0, "CurveV1MaxSafeSaviour/cannot-wipe-storage");
+
+        if (lpTokenCover[collateralType][safeHandler] == 0) return;
 
         for (uint i = 0; i < poolTokens.length; i++) {
           removedCoinLiquidity.push(ERC20Like(poolTokens[i]).balanceOf(address(this)));
         }
 
-        uint256 totalCover = lpTokenCover[safeHandler];
-        delete(lpTokenCover[safeHandler]);
+        uint256 totalCover = lpTokenCover[collateralType][safeHandler];
+        delete(lpTokenCover[collateralType][safeHandler]);
 
         lpToken.approve(address(curvePool), totalCover);
         curvePool.remove_liquidity(totalCover, defaultMinTokensToWithdraw);
@@ -494,12 +495,12 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
     }
     /*
     * @notice Return the total amount of LP tokens used to save a specific SAFE
-    * @param collateralType The SAFE collateral type (ignored in this implementation)
+    * @param collateralType The SAFE collateral type
     * @param safeHandler The handler of the SAFE which the function takes into account
     * @return The amount of LP tokens used to save a SAFE
     */
-    function tokenAmountUsedToSave(bytes32, address safeHandler) override public returns (uint256) {
-        return lpTokenCover[safeHandler];
+    function tokenAmountUsedToSave(bytes32 collateralType, address safeHandler) override public returns (uint256) {
+        return lpTokenCover[collateralType][safeHandler];
     }
     /*
     * @notify Fetch the system coin's market price
@@ -512,10 +513,12 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
     }
     /*
     * @notice Return the amount of system coins used to save a SAFE
+    * @param collateralType The SAFE collateral type
     * @param safeHandler The handler/address of the targeted SAFE
     * @param coinsLeft System coins left to save the SAFE after paying the liquidation keeper
     */
     function getTokensForSaving(
+      bytes32 collateralType,
       address safeHandler,
       uint256 coinsLeft
     ) public view returns (uint256) {
@@ -525,16 +528,16 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
 
         // Get the default CRatio for the SAFE
         (uint256 depositedCollateralToken, uint256 safeDebt) =
-          SAFEEngineLike(address(safeEngine)).safes(collateralJoin.collateralType(), safeHandler);
+          SAFEEngineLike(address(safeEngine)).safes(collateralType, safeHandler);
         if (safeDebt == 0) {
             return 0;
         }
 
         // See how many system coins can be used to save the SAFE
         uint256 usedSystemCoins;
-        (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralJoin.collateralType());
+        (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralType);
         (uint256 accumulatedRate, uint256 liquidationPrice) =
-          getAccumulatedRateAndLiquidationPrice(collateralJoin.collateralType());
+          getAccumulatedRateAndLiquidationPrice(collateralType);
 
         if (coinsLeft >= safeDebt) usedSystemCoins = safeDebt;
         else if (debtFloor < mul(safeDebt, accumulatedRate)) {
