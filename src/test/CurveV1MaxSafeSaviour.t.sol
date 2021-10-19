@@ -813,6 +813,11 @@ contract CurveV1MaxSafeSaviourTest is DSTest {
         (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
         assertTrue(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27) >= minCRatio / 10**17);
     }
+
+
+
+
+    
     function test_saveSAFE_twice() public {
         uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
         address safeHandler = safeManager.safes(safe);
@@ -820,10 +825,10 @@ contract CurveV1MaxSafeSaviourTest is DSTest {
 
         hevm.warp(now + saviourRegistry.saveCooldown() + 1);
         default_second_save(safe, safeHandler);
-        //
-        // (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
-        // (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
-        // assertTrue(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27) >= minCRatio / 10**17);
+
+        (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
+        (, uint accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
+        assertTrue(lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27) >= minCRatio / 10**17);
     }
     function testFail_saveSAFE_withdraw_cover() public {
         uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));

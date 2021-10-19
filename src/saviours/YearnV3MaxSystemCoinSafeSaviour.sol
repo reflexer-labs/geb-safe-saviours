@@ -425,11 +425,12 @@ contract YearnV3MaxSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
       uint256 pricePerShare,
       uint256 systemCoinKeeperPayout
     ) public view returns (uint256) {
-        if (systemCoinKeeperPayout == 0) {
+        if (either(systemCoinKeeperPayout == 0, yvTokenCover[collateralType][safeHandler] == 0)) {
             return 0;
         }
 
         uint256 coinsLeft     = div(mul(yvTokenCover[collateralType][safeHandler], pricePerShare), WAD);
+        if (systemCoinKeeperPayout > coinsLeft) return 0;
         coinsLeft             = sub(coinsLeft, systemCoinKeeperPayout);
 
         // Get the default CRatio for the SAFE
@@ -451,7 +452,7 @@ contract YearnV3MaxSystemCoinSafeSaviour is SafeMath, SafeSaviourLike {
         (uint256 accumulatedRate, uint256 liquidationPrice) =
           getAccumulatedRateAndLiquidationPrice(collateralType);
         bool safeSaved = (
-          mul(depositedCollateralToken, liquidationPrice) <
+          mul(depositedCollateralToken, liquidationPrice) >
           mul(sub(safeDebt, usedSystemCoins), accumulatedRate)
         );
 
