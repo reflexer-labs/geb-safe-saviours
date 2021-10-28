@@ -21,9 +21,9 @@ import "../integrations/uniswap/uni-v2/UniswapV2Factory.sol";
 import "../integrations/uniswap/uni-v2/UniswapV2Pair.sol";
 import "../integrations/uniswap/uni-v2/UniswapV2Router02.sol";
 
-import "../integrations/uniswap/swappers/UniswapV2Swapper.sol";
+import "../integrations/uniswap/uni-v2/UniswapV2Swapper.sol";
 
-import "../integrations/uniswap/liquidity-managers/UniswapV2LiquidityManager.sol";
+import "../integrations/uniswap/uni-v2/UniswapV2LiquidityManager.sol";
 
 import "../saviours/SystemCoinTargetUniswapV2SafeSaviour.sol";
 

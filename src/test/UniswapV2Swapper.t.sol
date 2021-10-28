@@ -8,7 +8,7 @@ import "../integrations/uniswap/uni-v2/UniswapV2Factory.sol";
 import "../integrations/uniswap/uni-v2/UniswapV2Pair.sol";
 import "../integrations/uniswap/uni-v2/UniswapV2Router02.sol";
 
-import "../integrations/uniswap/swappers/UniswapV2Swapper.sol";
+import "../integrations/uniswap/uni-v2/UniswapV2Swapper.sol";
 
 abstract contract Hevm {
     function warp(uint256) virtual public;
