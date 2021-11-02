@@ -4,7 +4,7 @@ This repository contains several SAFE saviours that can be attached to GEB Safes
 
 For more details on what saviours are and how they generally work, read the [official documentation](https://docs.reflexer.finance/liquidation-protection/safe-protection).
 
-# Saviour Types
+## Saviour Types
 
 - **CompoundSystemTargetCoinSafeSaviour**: this saviour lends system coins on a Compound like market and repays a Safe's debt when it's liquidated
 - **CurveV1MaxSafeSaviour**: this saviour uses a Curve V1 pool to withdraw liquidity and save a Safe
@@ -14,3 +14,7 @@ For more details on what saviours are and how they generally work, read the [off
 - **NativeUnderlyingMaxUniswapV3SafeSaviour**: this saviour withdraws liquidity from Uniswap V3 and repays debt and tops up a Safe in order to save it
 - **SystemCoinTargetUniswapV2SafeSaviour**: this saviour withdraws liquidity from Uniswap V2, swaps one of the tokens for the Safe's collateral and repays debt and/or tops up the Safe in order to save it
 - **YearnV3MaxSystemCoinSafeSaviour**: this saviour lends system coins in a Yearn v3 strategy vault and repays a Safe's debt when it's liquidated
+
+## Bug Bounty
+
+There's an [ongoing bug bounty program](https://immunefi.com/bounty/reflexer/) covering contracts from this repo.
