@@ -6,21 +6,21 @@ import "ds-token/token.sol";
 
 import "../interfaces/IERC721.sol";
 
-import {SAFEEngine} from "geb/SAFEEngine.sol";
-import {Coin} from "geb/Coin.sol";
-import {LiquidationEngine} from "geb/LiquidationEngine.sol";
-import {AccountingEngine} from "geb/AccountingEngine.sol";
-import {TaxCollector} from "geb/TaxCollector.sol";
-import {BasicCollateralJoin, CoinJoin} from "geb/BasicTokenAdapters.sol";
-import {OracleRelayer} from "geb/OracleRelayer.sol";
-import {EnglishCollateralAuctionHouse} from "geb/CollateralAuctionHouse.sol";
-import {GebSafeManager} from "geb-safe-manager/GebSafeManager.sol";
-import {SAFESaviourRegistry} from "../SAFESaviourRegistry.sol";
+import { SAFEEngine } from "geb/SAFEEngine.sol";
+import { Coin } from "geb/Coin.sol";
+import { LiquidationEngine } from "geb/LiquidationEngine.sol";
+import { AccountingEngine } from "geb/AccountingEngine.sol";
+import { TaxCollector } from "geb/TaxCollector.sol";
+import { BasicCollateralJoin, CoinJoin } from "geb/BasicTokenAdapters.sol";
+import { OracleRelayer } from "geb/OracleRelayer.sol";
+import { EnglishCollateralAuctionHouse } from "geb/CollateralAuctionHouse.sol";
+import { GebSafeManager } from "geb-safe-manager/GebSafeManager.sol";
+import { SAFESaviourRegistry } from "../SAFESaviourRegistry.sol";
 
 import "../integrations/uniswap/uni-v3/core/UniswapV3Factory.sol";
 import "../integrations/uniswap/uni-v3/core/UniswapV3Pool.sol";
-import {NonfungiblePositionManager} from "../integrations/uniswap/uni-v3/periphery/NonFungiblePositionManager.sol";
-import {UniswapV3LiquidityRemover} from "../integrations/uniswap/uni-v3/UniswapV3LiquidityRemover.sol";
+import { NonfungiblePositionManager } from "../integrations/uniswap/uni-v3/periphery/NonFungiblePositionManager.sol";
+import { UniswapV3LiquidityRemover } from "../integrations/uniswap/uni-v3/UniswapV3LiquidityRemover.sol";
 
 import "../saviours/NativeUnderlyingMaxUniswapV3SafeSaviour.sol";
 
@@ -132,9 +132,7 @@ contract FakeUser {
         manager.modifySAFECollateralization(safe, deltaCollateral, deltaDebt);
     }
 
-    function doApproveSAFEModification(SAFEEngine safeEngine, address usr)
-        public
-    {
+    function doApproveSAFEModification(SAFEEngine safeEngine, address usr) public {
         safeEngine.approveSAFEModification(usr);
     }
 
@@ -288,52 +286,30 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         oracleRelayer.modifyParameters("redemptionPrice", ray(initRAIUSDPrice));
         oracleRelayer.modifyParameters("eth", "orcl", address(ethFSM));
         oracleRelayer.modifyParameters("eth", "safetyCRatio", ray(minCRatio));
-        oracleRelayer.modifyParameters(
-            "eth",
-            "liquidationCRatio",
-            ray(minCRatio)
-        );
+        oracleRelayer.modifyParameters("eth", "liquidationCRatio", ray(minCRatio));
 
         safeEngine.addAuthorization(address(oracleRelayer));
         oracleRelayer.updateCollateralPrice("eth");
 
-        accountingEngine = new AccountingEngine(
-            address(safeEngine),
-            address(0x1),
-            address(0x2)
-        );
+        accountingEngine = new AccountingEngine(address(safeEngine), address(0x1), address(0x2));
         safeEngine.addAuthorization(address(accountingEngine));
 
         taxCollector = new TaxCollector(address(safeEngine));
         taxCollector.initializeCollateralType("eth");
-        taxCollector.modifyParameters(
-            "primaryTaxReceiver",
-            address(accountingEngine)
-        );
-        taxCollector.modifyParameters(
-            "eth",
-            "stabilityFee",
-            1000000564701133626865910626
-        ); // 5% / day
+        taxCollector.modifyParameters("primaryTaxReceiver", address(accountingEngine));
+        taxCollector.modifyParameters("eth", "stabilityFee", 1000000564701133626865910626); // 5% / day
         safeEngine.addAuthorization(address(taxCollector));
 
         liquidationEngine = new LiquidationEngine(address(safeEngine));
-        liquidationEngine.modifyParameters(
-            "accountingEngine",
-            address(accountingEngine)
-        );
+        liquidationEngine.modifyParameters("accountingEngine", address(accountingEngine));
 
         safeEngine.addAuthorization(address(liquidationEngine));
         accountingEngine.addAuthorization(address(liquidationEngine));
 
         weth = new WETH9_();
-        weth.deposit{value: initTokenAmount}();
+        weth.deposit{ value: initTokenAmount }();
 
-        collateralJoin = new BasicCollateralJoin(
-            address(safeEngine),
-            "eth",
-            address(weth)
-        );
+        collateralJoin = new BasicCollateralJoin(address(safeEngine), "eth", address(weth));
 
         coinJoin = new CoinJoin(address(safeEngine), address(systemCoin));
         systemCoin.addAuthorization(address(coinJoin));
@@ -357,16 +333,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         collateralAuctionHouse.addAuthorization(address(liquidationEngine));
 
         liquidationEngine.addAuthorization(address(collateralAuctionHouse));
-        liquidationEngine.modifyParameters(
-            "eth",
-            "collateralAuctionHouse",
-            address(collateralAuctionHouse)
-        );
-        liquidationEngine.modifyParameters(
-            "eth",
-            "liquidationPenalty",
-            ethLiquidationPenalty
-        );
+        liquidationEngine.modifyParameters("eth", "collateralAuctionHouse", address(collateralAuctionHouse));
+        liquidationEngine.modifyParameters("eth", "liquidationPenalty", ethLiquidationPenalty);
 
         safeEngine.addAuthorization(address(collateralAuctionHouse));
         safeEngine.approveSAFEModification(address(collateralAuctionHouse));
@@ -377,14 +345,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         // Uniswap setup
         isSystemCoinToken0 = address(systemCoin) < address(weth);
         uniV3Factory = new UniswapV3Factory();
-        positionManager = new NonfungiblePositionManager(
-            address(uniV3Factory),
-            address(weth),
-            address(0)
-        );
-        uniswapLiquidityRemover = new UniswapV3LiquidityRemover(
-            address(positionManager)
-        );
+        positionManager = new NonfungiblePositionManager(address(uniV3Factory), address(weth), address(0));
+        uniswapLiquidityRemover = new UniswapV3LiquidityRemover(address(positionManager));
         pool = UniswapV3Pool(
             uniV3Factory.createPool(
                 isSystemCoinToken0 ? address(systemCoin) : address(weth),
@@ -405,6 +367,10 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
             address(positionManager),
             address(pool),
             address(uniswapLiquidityRemover),
+            address(liquidationEngine),
+            address(taxCollector),
+            address(safeEngine),
+            address(systemCoinOracle),
             minKeeperPayoutValue
         );
 
@@ -439,21 +405,17 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         assertEq(saviour.restrictUsage(), 0);
 
         assertEq(address(saviour.positionManager()), address(positionManager));
-        assertEq(
-            address(saviour.liquidityRemover()),
-            address(uniswapLiquidityRemover)
-        );
+        assertEq(address(saviour.liquidityRemover()), address(uniswapLiquidityRemover));
         assertEq(address(saviour.systemCoin()), address(systemCoin));
         assertEq(address(saviour.coinJoin()), address(coinJoin));
         assertEq(address(saviour.collateralJoin()), address(collateralJoin));
         assertEq(address(saviour.collateralToken()), address(weth));
 
-        // assertEq(address(saviour.systemCoinOrcl()), address(systemCoinOracle));
-        // assertEq(address(saviour.liquidationEngine()), address(liquidationEngine));
-        // assertEq(address(saviour.oracleRelayer()), address(oracleRelayer));
-        // assertEq(address(saviour.safeEngine()), address(safeEngine));
-        // assertEq(address(saviour.safeManager()), address(safeManager));
-        // assertEq(address(saviour.liquidityManager()), address(liquidityManager));
-        // assertEq(address(saviour.lpToken()), address(raiWETHPair));
+        assertEq(address(saviour.systemCoinOrcl()), address(systemCoinOracle));
+        assertEq(address(saviour.liquidationEngine()), address(liquidationEngine));
+        assertEq(address(saviour.taxCollector()), address(taxCollector));
+        assertEq(address(saviour.oracleRelayer()), address(oracleRelayer));
+        assertEq(address(saviour.safeManager()), address(safeManager));
+        assertEq(address(saviour.safeEngine()), address(safeEngine));
     }
 }
