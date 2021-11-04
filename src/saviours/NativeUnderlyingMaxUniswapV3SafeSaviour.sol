@@ -153,6 +153,10 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         address positionManager_,
         address targetUniswapPool_,
         address liquidityRemover_,
+        address liquidationEngine_,
+        address taxCollector_,
+        address safeEngine_,
+        address systemCoinOrcl_,
         uint256 minKeeperPayoutValue_
     ) public {
         require(coinJoin_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-coin-join");
@@ -163,6 +167,10 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         require(positionManager_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-positions-manager");
         require(targetUniswapPool_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-target-pool");
         require(liquidityRemover_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-liquidity-remover");
+        require(liquidationEngine_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-liquidation-engine");
+        require(taxCollector_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-tax-collector");
+        require(safeEngine_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-safe-engine");
+        require(systemCoinOrcl_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-system-coin-oracle");
         require(minKeeperPayoutValue_ > 0, "NativeUnderlyingMaxUniswapV3SafeSaviour/invalid-min-payout-value");
 
         authorizedAccounts[msg.sender] = 1;
@@ -178,6 +186,10 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         safeEngine           = SAFEEngineLike(coinJoin.safeEngine());
         safeManager          = GebSafeManagerLike(safeManager_);
         liquidityRemover     = UniswapV3LiquidityRemoverLike(liquidityRemover_);
+        liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
+        taxCollector         = TaxCollectorLike(taxCollector_);
+        safeEngine           = SAFEEngineLike(safeEngine_);
+        systemCoinOrcl       = PriceFeedLike(systemCoinOrcl_);
         saviourRegistry      = SAFESaviourRegistryLike(saviourRegistry_);
         positionManager      = UniswapV3NonFungiblePositionManagerLike(positionManager_);
         collateralToken      = ERC20Like(collateralJoin.collateral());
