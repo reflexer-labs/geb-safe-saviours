@@ -74,21 +74,21 @@ contract MockMedianizer {
 }
 
 contract FakeUser {
-    // function doModifyParameters(
-    //   NativeUnderlyingTargetUniswapV2SafeSaviour saviour,
-    //   bytes32 parameter,
-    //   uint256 data
-    // ) public {
-    //   saviour.modifyParameters(parameter, data);
-    // }
+    function doModifyParameters(
+      NativeUnderlyingMaxUniswapV3SafeSaviour saviour,
+      bytes32 parameter,
+      uint256 data
+    ) public {
+      saviour.modifyParameters(parameter, data);
+    }
 
-    // function doModifyParameters(
-    //   NativeUnderlyingTargetUniswapV2SafeSaviour saviour,
-    //   bytes32 parameter,
-    //   address data
-    // ) public {
-    //   saviour.modifyParameters(parameter, data);
-    // }
+    function doModifyParameters(
+      NativeUnderlyingMaxUniswapV3SafeSaviour saviour,
+      bytes32 parameter,
+      address data
+    ) public {
+      saviour.modifyParameters(parameter, data);
+    }
 
     function doOpenSafe(
         GebSafeManager manager,
@@ -396,6 +396,19 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
 
     // --- Helpers ---
 
+    // --- Default actions ---
+
+    function default_modify_collateralization(uint256 safe, address safeHandler) internal {
+        weth.approve(address(collateralJoin), uint256(-1));
+        collateralJoin.join(address(safeHandler), defaultTokenAmount);
+        alice.doModifySAFECollateralization(
+            safeManager,
+            safe,
+            int256(defaultCollateralAmount),
+            int256(defaultTokenAmount * 10)
+        );
+    }
+
     // --- Tests ---
 
     function test_Xsetup() public {
@@ -410,12 +423,41 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         assertEq(address(saviour.coinJoin()), address(coinJoin));
         assertEq(address(saviour.collateralJoin()), address(collateralJoin));
         assertEq(address(saviour.collateralToken()), address(weth));
-
         assertEq(address(saviour.systemCoinOrcl()), address(systemCoinOracle));
         assertEq(address(saviour.liquidationEngine()), address(liquidationEngine));
         assertEq(address(saviour.taxCollector()), address(taxCollector));
         assertEq(address(saviour.oracleRelayer()), address(oracleRelayer));
         assertEq(address(saviour.safeManager()), address(safeManager));
         assertEq(address(saviour.safeEngine()), address(safeEngine));
+    }
+
+    function test_modify_uints() public {
+        saviour.modifyParameters("minKeeperPayoutValue", 5);
+        saviour.modifyParameters("restrictUsage", 1);
+
+        assertEq(saviour.minKeeperPayoutValue(), 5);
+        assertEq(saviour.restrictUsage(), 1);
+    }
+
+    function testFail_modify_uint_unauthed() public {
+        alice.doModifyParameters(saviour, "minKeeperPayoutValue", 5);
+    }
+
+    function test_modify_addresses() public {
+        saviour.modifyParameters("systemCoinOrcl", address(systemCoinOracle));
+        saviour.modifyParameters("oracleRelayer", address(oracleRelayer));
+        saviour.modifyParameters("liquidationEngine", address(liquidationEngine));
+        saviour.modifyParameters("taxCollector", address(taxCollector));
+        saviour.modifyParameters("liquidityRemover", address(uniswapLiquidityRemover));
+
+        assertEq(address(saviour.oracleRelayer()), address(oracleRelayer));
+        assertEq(address(saviour.systemCoinOrcl()), address(systemCoinOracle));
+        assertEq(address(saviour.liquidationEngine()), address(liquidationEngine));
+        assertEq(address(saviour.taxCollector()), address(taxCollector));
+        assertEq(address(saviour.liquidityRemover()), address(uniswapLiquidityRemover));
+    }
+
+    function testFail_modify_address_unauthed() public {
+        alice.doModifyParameters(saviour, "systemCoinOrcl", address(systemCoinOracle));
     }
 }
