@@ -19,7 +19,7 @@ import "../interfaces/SafeSaviourLike.sol";
 import "../interfaces/UniswapV3NonFungiblePositionManagerLike.sol";
 import "../interfaces/UniswapV3LiquidityRemoverLike.sol";
 
-import {UniswapV3PoolLike, UniswapV3FeeCalculator} from "../integrations/uniswap/uni-v3/UniswapV3FeeCalculator.sol";
+import {UniswapV3PoolLike} from "../integrations/uniswap/uni-v3/UniswapV3FeeCalculator.sol";
 
 import "../math/SafeMath.sol";
 
@@ -103,8 +103,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
     // NFT position manager for Uniswap v3
     UniswapV3NonFungiblePositionManagerLike public positionManager;
-    // Uniswap fee calculator for each position
-    UniswapV3FeeCalculator                  public feeCalculator;
     // Contract helping with liquidity removal
     UniswapV3LiquidityRemoverLike           public liquidityRemover;
     // The ERC20 system coin
@@ -254,9 +252,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         }
         else if (parameter == "taxCollector") {
             taxCollector = TaxCollectorLike(data);
-        }
-        else if (parameter == "feeCalculator") {
-            feeCalculator = UniswapV3FeeCalculator(data);
         }
         else if (parameter == "liquidityRemover") {
             liquidityRemover = UniswapV3LiquidityRemoverLike(data);
