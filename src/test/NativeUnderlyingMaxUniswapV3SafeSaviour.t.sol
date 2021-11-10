@@ -1,4 +1,5 @@
 pragma solidity 0.6.7;
+pragma experimental ABIEncoderV2;
 
 import "ds-test/test.sol";
 import "ds-weth/weth9.sol";
@@ -6,6 +7,7 @@ import "ds-token/token.sol";
 
 import "../interfaces/IERC721.sol";
 
+// GEB
 import { SAFEEngine } from "geb/SAFEEngine.sol";
 import { Coin } from "geb/Coin.sol";
 import { LiquidationEngine } from "geb/LiquidationEngine.sol";
@@ -15,14 +17,18 @@ import { BasicCollateralJoin, CoinJoin } from "geb/BasicTokenAdapters.sol";
 import { OracleRelayer } from "geb/OracleRelayer.sol";
 import { EnglishCollateralAuctionHouse } from "geb/CollateralAuctionHouse.sol";
 import { GebSafeManager } from "geb-safe-manager/GebSafeManager.sol";
-import { SAFESaviourRegistry } from "../SAFESaviourRegistry.sol";
 
+// Uniswap
 import "../integrations/uniswap/uni-v3/core/UniswapV3Factory.sol";
 import "../integrations/uniswap/uni-v3/core/UniswapV3Pool.sol";
+import { TickMath } from "../integrations/uniswap/uni-v3/core/libraries/TickMath.sol";
 import { NonfungiblePositionManager } from "../integrations/uniswap/uni-v3/periphery/NonFungiblePositionManager.sol";
+import { INonfungiblePositionManager } from "../integrations/uniswap/uni-v3/periphery/interfaces/INonfungiblePositionManager.sol";
 import { UniswapV3LiquidityRemover } from "../integrations/uniswap/uni-v3/UniswapV3LiquidityRemover.sol";
 
+// Saviour
 import "../saviours/NativeUnderlyingMaxUniswapV3SafeSaviour.sol";
+import { SAFESaviourRegistry } from "../SAFESaviourRegistry.sol";
 
 contract TestSAFEEngine is SAFEEngine {
     uint256 constant RAY = 10**27;
@@ -75,19 +81,19 @@ contract MockMedianizer {
 
 contract FakeUser {
     function doModifyParameters(
-      NativeUnderlyingMaxUniswapV3SafeSaviour saviour,
-      bytes32 parameter,
-      uint256 data
+        NativeUnderlyingMaxUniswapV3SafeSaviour saviour,
+        bytes32 parameter,
+        uint256 data
     ) public {
-      saviour.modifyParameters(parameter, data);
+        saviour.modifyParameters(parameter, data);
     }
 
     function doModifyParameters(
-      NativeUnderlyingMaxUniswapV3SafeSaviour saviour,
-      bytes32 parameter,
-      address data
+        NativeUnderlyingMaxUniswapV3SafeSaviour saviour,
+        bytes32 parameter,
+        address data
     ) public {
-      saviour.modifyParameters(parameter, data);
+        saviour.modifyParameters(parameter, data);
     }
 
     function doOpenSafe(
@@ -164,32 +170,33 @@ contract FakeUser {
         manager.protectSAFE(safe, liquidationEngine, saviour);
     }
 
-    // function doDeposit(
-    //     NativeUnderlyingTargetUniswapV2SafeSaviour saviour,
-    //     DSToken lpToken,
-    //     uint256 safeID,
-    //     uint256 tokenAmount
-    // ) public {
-    //     lpToken.approve(address(saviour), tokenAmount);
-    //     saviour.deposit(safeID, tokenAmount);
-    // }
+    function doDeposit(
+        NativeUnderlyingMaxUniswapV3SafeSaviour saviour,
+        NonfungiblePositionManager positionManager,
+        uint256 safeId,
+        uint256 tokenId
+    ) public {
+        positionManager.approve(address(saviour), tokenId);
+        saviour.deposit(safeId, tokenId);
+    }
 
-    // function doWithdraw(
-    //     NativeUnderlyingTargetUniswapV2SafeSaviour saviour,
-    //     uint256 safeID,
-    //     uint256 lpTokenAmount,
-    //     address dst
-    // ) public {
-    //     saviour.withdraw(safeID, lpTokenAmount, dst);
-    // }
+    function doWithdraw(
+        NativeUnderlyingMaxUniswapV3SafeSaviour saviour,
+        NonfungiblePositionManager positionManager,
+        uint256 safeId,
+        uint256 tokenId,
+        address dst
+    ) public {
+        saviour.withdraw(safeId, tokenId, dst);
+    }
 
-    // function doGetReserves(
-    //     NativeUnderlyingTargetUniswapV2SafeSaviour saviour,
-    //     uint256 safeID,
-    //     address dst
-    // ) public {
-    //     saviour.getReserves(safeID, dst);
-    // }
+    function doGetReserves(
+        NativeUnderlyingMaxUniswapV3SafeSaviour saviour,
+        uint256 safeId,
+        address dst
+    ) public {
+        saviour.getReserves(safeId, dst);
+    }
 
     function doTransferInternalCoins(
         GebSafeManager manager,
@@ -409,6 +416,46 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         );
     }
 
+    function default_mint_full_range_uni_position(
+        address token0,
+        address token1,
+        uint256 amount0,
+        uint256 amount1
+    ) internal returns (uint256) {
+        return
+            default_mint_uni_position(token0, token1, amount0, amount1, TickMath.MIN_TICK, TickMath.MAX_TICK);
+    }
+
+    function default_mint_uni_position(
+        address token0,
+        address token1,
+        uint256 amount0,
+        uint256 amount1,
+        int24 tickLower,
+        int24 tickUpper
+    ) internal returns (uint256) {
+        DSToken(token0).approve(address(positionManager), uint256(-1));
+        DSToken(token1).approve(address(positionManager), uint256(-1));
+
+        INonfungiblePositionManager.MintParams memory params = INonfungiblePositionManager.MintParams({
+            token0: token0,
+            token1: token1,
+            fee: uint24(3000),
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            amount0Desired: amount0,
+            amount1Desired: amount1,
+            amount0Min: amount0,
+            amount1Min: amount1,
+            recipient: msg.sender,
+            deadline: block.timestamp
+        });
+
+        (uint256 tokenId, , , ) = positionManager.mint(params);
+
+        return tokenId;
+    }
+
     // --- Tests ---
 
     function test_Xsetup() public {
@@ -459,5 +506,23 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
 
     function testFail_modify_address_unauthed() public {
         alice.doModifyParameters(saviour, "systemCoinOrcl", address(systemCoinOracle));
+    }
+
+    function testFail_Xdeposit_liq_engine_not_approved() public {
+        liquidationEngine.disconnectSAFESaviour(address(saviour));
+
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        uint256 tokenId = default_mint_full_range_uni_position(
+            address(systemCoin),
+            address(weth),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+
+        positionManager.transferFrom(address(this), address(alice), tokenId);
+        alice.doDeposit(saviour, positionManager, 1, tokenId);
     }
 }
