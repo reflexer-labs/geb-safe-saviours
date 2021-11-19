@@ -350,7 +350,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         );
         require(
           either(lpTokenCover[safeHandler].firstId == tokenId, lpTokenCover[safeHandler].secondId == tokenId),
-          "NativeUnderlyingMaxUniswapV3SafeSaviour/cannot-add-more-positions"
+          "NativeUnderlyingMaxUniswapV3SafeSaviour/position-not-depostied"
         );
 
         // Update NFT entries

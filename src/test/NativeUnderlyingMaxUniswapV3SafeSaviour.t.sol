@@ -250,8 +250,9 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
     uint256 initETHUSDPrice = 250 * 10**18;
     uint256 initRAIUSDPrice = 4.242 * 10**18;
 
-    uint256 initETHRAIPairLiquidity = 5 ether; // 1250 USD
-    uint256 initRAIETHPairLiquidity = 294.672324375E18; // 1 RAI = 4.242 USD
+    // Assume ETH at 4k, RAI at 3
+    uint256 initETHRAIPairLiquidity = 6 ether;
+    uint256 initRAIETHPairLiquidity = 8000 ether;
 
     // Saviour params
     bool isSystemCoinToken0;
@@ -355,12 +356,20 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         positionManager = new NonfungiblePositionManager(address(uniV3Factory), address(weth), address(0));
         uniswapLiquidityRemover = new UniswapV3LiquidityRemover(address(positionManager));
         pool = UniswapV3Pool(
-            uniV3Factory.createPool(
-                isSystemCoinToken0 ? address(systemCoin) : address(weth),
-                isSystemCoinToken0 ? address(weth) : address(systemCoin),
-                uint24(3000)
+            positionManager.createAndInitializePoolIfNecessary(
+                address(systemCoin),
+                address(weth),
+                uint24(3000),
+                // sqrtx96 calculated using: https://uniswap-v3-calculator.netlify.app/
+                isSystemCoinToken0
+                    ? uint160(2169752589937389744715760893)
+                    : uint160(2893003453249852992954347857494)
             )
         );
+
+        // codeHash of the pool contract to use the PoolAddress library
+        // Needs to be manually updated if the pool contract is changed
+        log_bytes32(keccak256(type(UniswapV3Pool).creationCode));
 
         // Saviour infra
         saviourRegistry = new SAFESaviourRegistry(saveCooldown);
@@ -404,7 +413,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
     // --- Helpers ---
 
     // --- Default actions ---
-
     function default_modify_collateralization(uint256 safe, address safeHandler) internal {
         weth.approve(address(collateralJoin), uint256(-1));
         collateralJoin.join(address(safeHandler), defaultTokenAmount);
@@ -422,8 +430,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         uint256 amount0,
         uint256 amount1
     ) internal returns (uint256) {
-        return
-            default_mint_uni_position(token0, token1, amount0, amount1, TickMath.MIN_TICK, TickMath.MAX_TICK);
+        return default_mint_uni_position(token0, token1, amount0, amount1, -887220, 887220);
     }
 
     function default_mint_uni_position(
@@ -445,9 +452,9 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
             tickUpper: tickUpper,
             amount0Desired: amount0,
             amount1Desired: amount1,
-            amount0Min: amount0,
-            amount1Min: amount1,
-            recipient: msg.sender,
+            amount0Min: 0,
+            amount1Min: 0,
+            recipient: address(this),
             deadline: block.timestamp
         });
 
@@ -457,8 +464,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
     }
 
     // --- Tests ---
-
-    function test_Xsetup() public {
+    function test_setup() public {
         assertEq(saviour.authorizedAccounts(address(this)), 1);
         assertTrue(saviour.isSystemCoinToken0() == isSystemCoinToken0);
         assertEq(saviour.minKeeperPayoutValue(), minKeeperPayoutValue);
@@ -508,7 +514,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         alice.doModifyParameters(saviour, "systemCoinOrcl", address(systemCoinOracle));
     }
 
-    function testFail_Xdeposit_liq_engine_not_approved() public {
+    function testFail_deposit_liq_engine_not_approved() public {
         liquidationEngine.disconnectSAFESaviour(address(saviour));
 
         uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
@@ -516,13 +522,195 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         default_modify_collateralization(safe, safeHandler);
 
         uint256 tokenId = default_mint_full_range_uni_position(
-            address(systemCoin),
-            address(weth),
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
             initRAIETHPairLiquidity,
             initETHRAIPairLiquidity
         );
 
         positionManager.transferFrom(address(this), address(alice), tokenId);
-        alice.doDeposit(saviour, positionManager, 1, tokenId);
+        alice.doDeposit(saviour, positionManager, safe, tokenId);
+    }
+
+    function testFail_deposit_inexistent_safe() public {
+        uint256 tokenId = default_mint_full_range_uni_position(
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+
+        positionManager.transferFrom(address(this), address(alice), tokenId);
+        alice.doDeposit(saviour, positionManager, uint256(-1), tokenId);
+    }
+
+    function test_deposit_and_withdraw_one_position() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        uint256 tokenId = default_mint_full_range_uni_position(
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+
+        positionManager.transferFrom(address(this), address(alice), tokenId);
+        alice.doDeposit(saviour, positionManager, safe, tokenId);
+
+        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
+        assertEq(first, tokenId);
+        assertEq(second, 0);
+        assertEq(positionManager.ownerOf(tokenId), address(saviour));
+
+        alice.doWithdraw(saviour, positionManager, safe, tokenId, address(alice));
+
+        (first, second) = saviour.lpTokenCover(safeHandler);
+        assertEq(first, 0);
+        assertEq(second, 0);
+        assertEq(positionManager.ownerOf(tokenId), address(alice));
+    }
+
+    function test_deposit_and_withdraw_two_position() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        uint256 tokenId1 = default_mint_full_range_uni_position(
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+
+        uint256 tokenId2 = default_mint_full_range_uni_position(
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+
+        positionManager.transferFrom(address(this), address(alice), tokenId1);
+        positionManager.transferFrom(address(this), address(alice), tokenId2);
+
+        alice.doDeposit(saviour, positionManager, safe, tokenId1);
+        alice.doDeposit(saviour, positionManager, safe, tokenId2);
+
+        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
+        assertEq(first, tokenId1);
+        assertEq(second, tokenId2);
+
+        assertEq(positionManager.ownerOf(tokenId1), address(saviour));
+        assertEq(positionManager.ownerOf(tokenId2), address(saviour));
+
+        alice.doWithdraw(saviour, positionManager, safe, tokenId1, address(alice));
+
+        (first, second) = saviour.lpTokenCover(safeHandler);
+        assertEq(first, tokenId2);
+        assertEq(second, 0);
+
+        alice.doWithdraw(saviour, positionManager, safe, tokenId2, address(alice));
+
+        (first, second) = saviour.lpTokenCover(safeHandler);
+        assertEq(first, 0);
+        assertEq(second, 0);
+
+        assertEq(positionManager.ownerOf(tokenId1), address(alice));
+        assertEq(positionManager.ownerOf(tokenId2), address(alice));
+    }
+
+    function test_deposit_and_withdraw_reverse_order_two_position() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        uint256 tokenId1 = default_mint_full_range_uni_position(
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+
+        uint256 tokenId2 = default_mint_full_range_uni_position(
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+
+        positionManager.transferFrom(address(this), address(alice), tokenId1);
+        positionManager.transferFrom(address(this), address(alice), tokenId2);
+
+        alice.doDeposit(saviour, positionManager, safe, tokenId1);
+        alice.doDeposit(saviour, positionManager, safe, tokenId2);
+
+        alice.doWithdraw(saviour, positionManager, safe, tokenId2, address(alice));
+
+        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
+        assertEq(first, tokenId1);
+        assertEq(second, 0);
+
+        alice.doWithdraw(saviour, positionManager, safe, tokenId1, address(alice));
+
+        (first, second) = saviour.lpTokenCover(safeHandler);
+        assertEq(first, 0);
+        assertEq(second, 0);
+
+        assertEq(positionManager.ownerOf(tokenId1), address(alice));
+        assertEq(positionManager.ownerOf(tokenId2), address(alice));
+    }
+
+    function testFail_already_withdrawn() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        uint256 tokenId = default_mint_full_range_uni_position(
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+        positionManager.transferFrom(address(this), address(alice), tokenId);
+
+        alice.doDeposit(saviour, positionManager, safe, tokenId);
+        alice.doWithdraw(saviour, positionManager, safe, tokenId, address(alice));
+        alice.doWithdraw(saviour, positionManager, safe, tokenId, address(alice));
+    }
+
+    function testFail_deposit_third_position() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        uint256 tokenId1 = default_mint_full_range_uni_position(
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+
+        uint256 tokenId2 = default_mint_full_range_uni_position(
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+
+        uint256 tokenId3 = default_mint_full_range_uni_position(
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+
+        positionManager.transferFrom(address(this), address(alice), tokenId1);
+        positionManager.transferFrom(address(this), address(alice), tokenId2);
+        positionManager.transferFrom(address(this), address(alice), tokenId3);
+
+        alice.doDeposit(saviour, positionManager, safe, tokenId1);
+        alice.doDeposit(saviour, positionManager, safe, tokenId2);
+        alice.doDeposit(saviour, positionManager, safe, tokenId3);
     }
 }
