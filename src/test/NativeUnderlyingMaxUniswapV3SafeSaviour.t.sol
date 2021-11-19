@@ -424,6 +424,14 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         );
     }
 
+    function default_open_safe_and_modify_collateralization() internal returns (uint256, address) {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_modify_collateralization(safe, safeHandler);
+
+        return (safe, safeHandler);
+    }
+
     function default_mint_full_range_uni_position(
         address token0,
         address token1,
@@ -461,6 +469,64 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         (uint256 tokenId, , , ) = positionManager.mint(params);
 
         return tokenId;
+    }
+
+    function default_create_position_and_deposit(uint256 safe) internal returns (uint256) {
+        address safeHandler = safeManager.safes(safe);
+        uint256 tokenId = default_mint_full_range_uni_position(
+            isSystemCoinToken0 ? address(systemCoin) : address(weth),
+            isSystemCoinToken0 ? address(weth) : address(systemCoin),
+            initRAIETHPairLiquidity,
+            initETHRAIPairLiquidity
+        );
+
+        (uint256 oldFirst, ) = saviour.lpTokenCover(safeHandler);
+
+        bool addToSecondSlot = oldFirst > 0;
+
+        positionManager.transferFrom(address(this), address(alice), tokenId);
+        alice.doDeposit(saviour, positionManager, safe, tokenId);
+
+        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
+
+        if (addToSecondSlot) {
+            assertEq(second, tokenId);
+            assertEq(oldFirst, first);
+        } else {
+            assertEq(first, tokenId);
+            assertEq(second, 0);
+        }
+
+        assertEq(positionManager.ownerOf(tokenId), address(saviour));
+
+        return tokenId;
+    }
+
+    function default_withdraw_position(uint256 safe, uint256 tokenId) internal {
+        address safeHandler = safeManager.safes(safe);
+        (uint256 oldFirst, uint256 oldSecond) = saviour.lpTokenCover(safeHandler);
+
+        bool isFirst;
+        if (tokenId == oldFirst) {
+            isFirst = true;
+        } else if (tokenId == oldSecond) {
+            isFirst = false;
+        } else {
+            fail();
+        }
+
+        alice.doWithdraw(saviour, positionManager, safe, tokenId, address(alice));
+
+        (uint256 newFirst, uint256 newSecond) = saviour.lpTokenCover(safeHandler);
+
+        if (isFirst) {
+            assertEq(newFirst, oldSecond);
+        }
+
+        // Remaining token should always be in slot 1
+        assertEq(newSecond, 0);
+
+        assertEq(positionManager.ownerOf(tokenId), address(alice));
     }
 
     // --- Tests ---
@@ -545,172 +611,74 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
     }
 
     function test_deposit_and_withdraw_one_position() public {
-        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-        address safeHandler = safeManager.safes(safe);
-        default_modify_collateralization(safe, safeHandler);
-
-        uint256 tokenId = default_mint_full_range_uni_position(
-            isSystemCoinToken0 ? address(systemCoin) : address(weth),
-            isSystemCoinToken0 ? address(weth) : address(systemCoin),
-            initRAIETHPairLiquidity,
-            initETHRAIPairLiquidity
-        );
-
-        positionManager.transferFrom(address(this), address(alice), tokenId);
-        alice.doDeposit(saviour, positionManager, safe, tokenId);
-
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, tokenId);
-        assertEq(second, 0);
-        assertEq(positionManager.ownerOf(tokenId), address(saviour));
-
-        alice.doWithdraw(saviour, positionManager, safe, tokenId, address(alice));
-
-        (first, second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, 0);
-        assertEq(second, 0);
-        assertEq(positionManager.ownerOf(tokenId), address(alice));
+        (uint256 safe, ) = default_open_safe_and_modify_collateralization();
+        uint256 tokenId = default_create_position_and_deposit(safe);
+        default_withdraw_position(safe, tokenId);
     }
 
     function test_deposit_and_withdraw_two_position() public {
-        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-        address safeHandler = safeManager.safes(safe);
-        default_modify_collateralization(safe, safeHandler);
+        (uint256 safe, ) = default_open_safe_and_modify_collateralization();
+        uint256 tokenId1 = default_create_position_and_deposit(safe);
+        uint256 tokenId2 = default_create_position_and_deposit(safe);
 
-        uint256 tokenId1 = default_mint_full_range_uni_position(
-            isSystemCoinToken0 ? address(systemCoin) : address(weth),
-            isSystemCoinToken0 ? address(weth) : address(systemCoin),
-            initRAIETHPairLiquidity,
-            initETHRAIPairLiquidity
-        );
-
-        uint256 tokenId2 = default_mint_full_range_uni_position(
-            isSystemCoinToken0 ? address(systemCoin) : address(weth),
-            isSystemCoinToken0 ? address(weth) : address(systemCoin),
-            initRAIETHPairLiquidity,
-            initETHRAIPairLiquidity
-        );
-
-        positionManager.transferFrom(address(this), address(alice), tokenId1);
-        positionManager.transferFrom(address(this), address(alice), tokenId2);
-
-        alice.doDeposit(saviour, positionManager, safe, tokenId1);
-        alice.doDeposit(saviour, positionManager, safe, tokenId2);
-
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, tokenId1);
-        assertEq(second, tokenId2);
-
-        assertEq(positionManager.ownerOf(tokenId1), address(saviour));
-        assertEq(positionManager.ownerOf(tokenId2), address(saviour));
-
-        alice.doWithdraw(saviour, positionManager, safe, tokenId1, address(alice));
-
-        (first, second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, tokenId2);
-        assertEq(second, 0);
-
-        alice.doWithdraw(saviour, positionManager, safe, tokenId2, address(alice));
-
-        (first, second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, 0);
-        assertEq(second, 0);
-
-        assertEq(positionManager.ownerOf(tokenId1), address(alice));
-        assertEq(positionManager.ownerOf(tokenId2), address(alice));
+        default_withdraw_position(safe, tokenId1);
+        default_withdraw_position(safe, tokenId2);
     }
 
     function test_deposit_and_withdraw_reverse_order_two_position() public {
-        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-        address safeHandler = safeManager.safes(safe);
-        default_modify_collateralization(safe, safeHandler);
+        (uint256 safe, ) = default_open_safe_and_modify_collateralization();
+        uint256 tokenId1 = default_create_position_and_deposit(safe);
+        uint256 tokenId2 = default_create_position_and_deposit(safe);
 
-        uint256 tokenId1 = default_mint_full_range_uni_position(
-            isSystemCoinToken0 ? address(systemCoin) : address(weth),
-            isSystemCoinToken0 ? address(weth) : address(systemCoin),
-            initRAIETHPairLiquidity,
-            initETHRAIPairLiquidity
-        );
-
-        uint256 tokenId2 = default_mint_full_range_uni_position(
-            isSystemCoinToken0 ? address(systemCoin) : address(weth),
-            isSystemCoinToken0 ? address(weth) : address(systemCoin),
-            initRAIETHPairLiquidity,
-            initETHRAIPairLiquidity
-        );
-
-        positionManager.transferFrom(address(this), address(alice), tokenId1);
-        positionManager.transferFrom(address(this), address(alice), tokenId2);
-
-        alice.doDeposit(saviour, positionManager, safe, tokenId1);
-        alice.doDeposit(saviour, positionManager, safe, tokenId2);
-
-        alice.doWithdraw(saviour, positionManager, safe, tokenId2, address(alice));
-
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, tokenId1);
-        assertEq(second, 0);
-
-        alice.doWithdraw(saviour, positionManager, safe, tokenId1, address(alice));
-
-        (first, second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, 0);
-        assertEq(second, 0);
-
-        assertEq(positionManager.ownerOf(tokenId1), address(alice));
-        assertEq(positionManager.ownerOf(tokenId2), address(alice));
+        default_withdraw_position(safe, tokenId2);
+        default_withdraw_position(safe, tokenId1);
     }
 
     function testFail_already_withdrawn() public {
-        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-        address safeHandler = safeManager.safes(safe);
-        default_modify_collateralization(safe, safeHandler);
+        (uint256 safe, ) = default_open_safe_and_modify_collateralization();
+        uint256 tokenId = default_create_position_and_deposit(safe);
 
-        uint256 tokenId = default_mint_full_range_uni_position(
-            isSystemCoinToken0 ? address(systemCoin) : address(weth),
-            isSystemCoinToken0 ? address(weth) : address(systemCoin),
-            initRAIETHPairLiquidity,
-            initETHRAIPairLiquidity
-        );
-        positionManager.transferFrom(address(this), address(alice), tokenId);
-
-        alice.doDeposit(saviour, positionManager, safe, tokenId);
-        alice.doWithdraw(saviour, positionManager, safe, tokenId, address(alice));
-        alice.doWithdraw(saviour, positionManager, safe, tokenId, address(alice));
+        default_withdraw_position(safe, tokenId);
+        default_withdraw_position(safe, tokenId);
     }
 
     function testFail_deposit_third_position() public {
-        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-        address safeHandler = safeManager.safes(safe);
-        default_modify_collateralization(safe, safeHandler);
+        (uint256 safe, ) = default_open_safe_and_modify_collateralization();
+        default_create_position_and_deposit(safe);
+        default_create_position_and_deposit(safe);
+        default_create_position_and_deposit(safe);
+    }
 
-        uint256 tokenId1 = default_mint_full_range_uni_position(
-            isSystemCoinToken0 ? address(systemCoin) : address(weth),
-            isSystemCoinToken0 ? address(weth) : address(systemCoin),
-            initRAIETHPairLiquidity,
-            initETHRAIPairLiquidity
-        );
+    function test_getCollateralPrice_zero_price() public {
+        ethFSM.updateCollateralPrice(0);
+        assertEq(saviour.getCollateralPrice(), 0);
+    }
 
-        uint256 tokenId2 = default_mint_full_range_uni_position(
-            isSystemCoinToken0 ? address(systemCoin) : address(weth),
-            isSystemCoinToken0 ? address(weth) : address(systemCoin),
-            initRAIETHPairLiquidity,
-            initETHRAIPairLiquidity
-        );
+    function test_getCollateralPrice_invalid() public {
+        ethFSM.changeValidity();
+        assertEq(saviour.getCollateralPrice(), 0);
+    }
 
-        uint256 tokenId3 = default_mint_full_range_uni_position(
-            isSystemCoinToken0 ? address(systemCoin) : address(weth),
-            isSystemCoinToken0 ? address(weth) : address(systemCoin),
-            initRAIETHPairLiquidity,
-            initETHRAIPairLiquidity
-        );
+    function test_getCollateralPrice_null_fsm() public {
+        oracleRelayer.modifyParameters("eth", "orcl", address(0));
+        assertEq(saviour.getCollateralPrice(), 0);
+    }
 
-        positionManager.transferFrom(address(this), address(alice), tokenId1);
-        positionManager.transferFrom(address(this), address(alice), tokenId2);
-        positionManager.transferFrom(address(this), address(alice), tokenId3);
+    function test_getCollateralPrice() public {
+        assertEq(saviour.getCollateralPrice(), initETHUSDPrice);
+    }
 
-        alice.doDeposit(saviour, positionManager, safe, tokenId1);
-        alice.doDeposit(saviour, positionManager, safe, tokenId2);
-        alice.doDeposit(saviour, positionManager, safe, tokenId3);
+    function test_getSystemCoinMarketPrice_invalid() public {
+        systemCoinOracle.changeValidity();
+        assertEq(saviour.getSystemCoinMarketPrice(), 0);
+    }
+
+    function test_getSystemCoinMarketPrice_null_price() public {
+        systemCoinOracle.updateCollateralPrice(0);
+        assertEq(saviour.getSystemCoinMarketPrice(), 0);
+    }
+
+    function test_getSystemCoinMarketPrice() public {
+        assertEq(saviour.getSystemCoinMarketPrice(), initRAIUSDPrice);
     }
 }
