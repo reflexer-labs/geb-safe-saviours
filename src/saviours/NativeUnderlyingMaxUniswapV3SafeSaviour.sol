@@ -611,8 +611,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         (uint256 accumulatedRate, uint256 liquidationPrice) =
           getAccumulatedRateAndLiquidationPrice(collateralJoin.collateralType());
         bool safeSaved = (
-          mul(add(depositedCollateralToken, collateralLeft), liquidationPrice) <
-          mul(sub(safeDebt, usedSystemCoins), accumulatedRate)
+          mul(sub(safeDebt, usedSystemCoins), accumulatedRate) <= 
+          mul(add(depositedCollateralToken, collateralLeft), liquidationPrice)
         );
 
         if (safeSaved) return (usedSystemCoins, collateralLeft);
