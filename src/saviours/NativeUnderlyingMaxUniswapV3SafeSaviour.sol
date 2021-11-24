@@ -17,7 +17,6 @@ pragma solidity >=0.6.7;
 
 import "../interfaces/SafeSaviourLike.sol";
 import "../interfaces/UniswapV3NonFungiblePositionManagerLike.sol";
-import "../interfaces/UniswapV3LiquidityRemoverLike.sol";
 
 import {UniswapV3PoolLike} from "../integrations/uniswap/uni-v3/UniswapV3FeeCalculator.sol";
 
@@ -103,8 +102,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
     // NFT position manager for Uniswap v3
     UniswapV3NonFungiblePositionManagerLike public positionManager;
-    // Contract helping with liquidity removal
-    UniswapV3LiquidityRemoverLike           public liquidityRemover;
     // The ERC20 system coin
     ERC20Like                               public systemCoin;
     // The system coin join contract
@@ -150,7 +147,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         address saviourRegistry_,
         address positionManager_,
         address targetUniswapPool_,
-        address liquidityRemover_,
         address liquidationEngine_,
         address taxCollector_,
         address safeEngine_,
@@ -164,7 +160,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         require(saviourRegistry_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-saviour-registry");
         require(positionManager_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-positions-manager");
         require(targetUniswapPool_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-target-pool");
-        require(liquidityRemover_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-liquidity-remover");
         require(liquidationEngine_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-liquidation-engine");
         require(taxCollector_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-tax-collector");
         require(safeEngine_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-safe-engine");
@@ -183,7 +178,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         systemCoin           = ERC20Like(coinJoin.systemCoin());
         safeEngine           = SAFEEngineLike(coinJoin.safeEngine());
         safeManager          = GebSafeManagerLike(safeManager_);
-        liquidityRemover     = UniswapV3LiquidityRemoverLike(liquidityRemover_);
         liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
         taxCollector         = TaxCollectorLike(taxCollector_);
         safeEngine           = SAFEEngineLike(safeEngine_);
@@ -204,7 +198,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         emit AddAuthorization(msg.sender);
         emit ModifyParameters("minKeeperPayoutValue", minKeeperPayoutValue);
         emit ModifyParameters("oracleRelayer", oracleRelayer_);
-        emit ModifyParameters("liquidityRemover", liquidityRemover_);
         emit ModifyParameters("positionManager", positionManager_);
     }
 
@@ -252,9 +245,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         }
         else if (parameter == "taxCollector") {
             taxCollector = TaxCollectorLike(data);
-        }
-        else if (parameter == "liquidityRemover") {
-            liquidityRemover = UniswapV3LiquidityRemoverLike(data);
         }
         else revert("NativeUnderlyingMaxUniswapV3SafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, data);
