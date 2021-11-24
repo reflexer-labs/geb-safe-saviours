@@ -506,19 +506,17 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
      * @param tokenId The ID of the position from which we withdraw liquidity
      */
     function removeLiquidity(uint256 tokenId) internal {
-        // Approve the position to be handled by the liquidity remover
-        positionManager.approve(address(liquidityRemover), tokenId);
+         (, , , , , , , uint128 liquidity) = positionManager.positions(tokenId);
 
-        // Remove liquidity and fees
-        liquidityRemover.removeAllLiquidity(tokenId);
+        address(positionManager).call(abi.encodeWithSelector(
+          bytes4(keccak256("decreaseLiquidity((uint256,uint128,uint256,uint256,uint256))")),
+          uint256(tokenId), uint128(liquidity), uint256(0), uint256(0), uint256(block.timestamp)
+        ));
 
-        // Checks
-        require(positionManager.ownerOf(tokenId) == address(this), "NativeUnderlyingMaxUniswapV3SafeSaviour/position-not-back");
-
-        ( ,,,,,,,
-          uint128 liquidity
-        ) = positionManager.positions(tokenId);
-        require(liquidity == 0, "NativeUnderlyingMaxUniswapV3SafeSaviour/invalid-liquidity-decrease");
+        address(positionManager).call(abi.encodeWithSelector(
+          bytes4(keccak256("collect((uint256,address,uint128,uint128))")),
+          uint256(tokenId), address(this), uint128(-1), uint128(-1)
+        ));
     }
 
     // --- Getters ---
