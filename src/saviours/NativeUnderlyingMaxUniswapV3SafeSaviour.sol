@@ -508,11 +508,15 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     function removeLiquidity(uint256 tokenId) internal {
          (, , , , , , , uint128 liquidity) = positionManager.positions(tokenId);
 
+        // We manually pack external calls to Uniswap to avoid using ABI coder V2 
+
+        // Remove the position but does not transfer tokens
         address(positionManager).call(abi.encodeWithSelector(
           bytes4(keccak256("decreaseLiquidity((uint256,uint128,uint256,uint256,uint256))")),
           uint256(tokenId), uint128(liquidity), uint256(0), uint256(0), uint256(block.timestamp)
         ));
 
+        // Collect LP fees + transfer all the tokens
         address(positionManager).call(abi.encodeWithSelector(
           bytes4(keccak256("collect((uint256,address,uint128,uint128))")),
           uint256(tokenId), address(this), uint128(-1), uint128(-1)
