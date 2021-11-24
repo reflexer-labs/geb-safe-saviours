@@ -365,8 +365,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         emit Withdraw(msg.sender, safeHandler, dst, tokenId);
     }
 
-      event log_int                (uint);
-
     // --- Saving Logic ---
     /*
     * @notice Saves a SAFE by withdrawing liquidity and repaying debt and/or adding more collateral
