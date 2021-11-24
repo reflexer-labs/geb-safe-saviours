@@ -894,11 +894,11 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
     function test_saveSAFE() public {
         (uint256 safe, address safeHandler, ) = default_create_liquidatable_position_deposit_cover();
 
-        (uint256 debtBefore, uint256 collateralBefore) = safeEngine.safes("eth", safeHandler);
+        (uint256 collateralBefore, uint256 debtBefore) = safeEngine.safes("eth", safeHandler);
 
         liquidationEngine.liquidateSAFE("eth", safeHandler);
 
-        (uint256 debtAfter, uint256 collateralAfter) = safeEngine.safes("eth", safeHandler);
+        (uint256 collateralAfter, uint256 debtAfter) = safeEngine.safes("eth", safeHandler);
 
         assertLt(debtAfter, debtBefore);
         assertGt(collateralAfter, collateralBefore);
