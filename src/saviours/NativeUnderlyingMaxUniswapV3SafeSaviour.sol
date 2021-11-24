@@ -365,6 +365,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         emit Withdraw(msg.sender, safeHandler, dst, tokenId);
     }
 
+      event log_int                (uint);
+
     // --- Saving Logic ---
     /*
     * @notice Saves a SAFE by withdrawing liquidity and repaying debt and/or adding more collateral
@@ -583,37 +585,53 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
       address safeHandler,
       uint256 coinsLeft,
       uint256 collateralLeft
-    ) public view returns (uint256, uint256) {
+    ) public returns (uint256, uint256) {
         if (both(coinsLeft == 0, collateralLeft == 0)) {
             return (0, 0);
         }
 
         // Get the default CRatio for the SAFE
-        (uint256 depositedCollateralToken, uint256 safeDebt) =
+        (uint256 depositedCollateralToken, uint256 nonAdjustedSafeDebt) =
           SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
-        if (safeDebt == 0) {
+        
+        if (nonAdjustedSafeDebt == 0) {
             return (0, 0);
-        }
-
-        // See how many system coins can be used to save the SAFE
-        uint256 usedSystemCoins;
-        if (coinsLeft > 0) {
-          (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralJoin.collateralType());
-          if (coinsLeft >= safeDebt) usedSystemCoins = safeDebt;
-          else if (debtFloor < safeDebt) {
-            usedSystemCoins = min(sub(safeDebt, debtFloor), coinsLeft);
-          }
         }
 
         // See if the SAFE can be saved by adding all collateral left
         (uint256 accumulatedRate, uint256 liquidationPrice) =
           getAccumulatedRateAndLiquidationPrice(collateralJoin.collateralType());
+
+        uint256 nonAdjustedCoinsLeft = div(mul(coinsLeft, RAY), accumulatedRate);
+
+        // Calculate how many coins can be used to save the SAFE
+        uint256 nonAdjustedUsedSystemCoins;
+        if (coinsLeft > 0) {
+          (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralJoin.collateralType()); // RAD
+          
+          if (nonAdjustedCoinsLeft >= nonAdjustedSafeDebt) {
+            // The debt can be fully repaid by the savior
+            nonAdjustedUsedSystemCoins = nonAdjustedSafeDebt;
+          }
+          else if (mul(nonAdjustedSafeDebt, accumulatedRate) > debtFloor) {
+            // The debt is partially repaid by the saviour.
+            // Make sure we don't endup below the debt floor
+            nonAdjustedUsedSystemCoins =  min(sub(nonAdjustedSafeDebt, div(debtFloor, RAY)), nonAdjustedCoinsLeft);
+          } else {
+            // The debt is already smaller than the floor. This is an edge caused by having lowered the debt floor. Don't touch it.
+            nonAdjustedUsedSystemCoins = 0;
+          }
+        }
+
+        
         bool safeSaved = (
-          mul(sub(safeDebt, usedSystemCoins), accumulatedRate) <= 
+          mul(sub(nonAdjustedSafeDebt, nonAdjustedUsedSystemCoins), accumulatedRate) <= 
           mul(add(depositedCollateralToken, collateralLeft), liquidationPrice)
         );
 
-        if (safeSaved) return (usedSystemCoins, collateralLeft);
+        uint256 adjustedUsedSystemCoins =  div(mul(nonAdjustedUsedSystemCoins, accumulatedRate), RAY);
+
+        if (safeSaved) return (adjustedUsedSystemCoins, collateralLeft);
         else {
           return (0, 0);
         }
