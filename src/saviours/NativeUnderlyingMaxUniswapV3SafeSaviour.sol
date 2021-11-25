@@ -399,8 +399,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         // Withdraw all liquidity
-        if (lpTokenCover[safeHandler].secondId != 0) removeLiquidity(lpTokenCover[safeHandler].secondId);
-        if (lpTokenCover[safeHandler].firstId != 0)  removeLiquidity(lpTokenCover[safeHandler].firstId);
+        if (lpTokenCover[safeHandler].secondId != 0) removeLiquidity(lpTokenCover[safeHandler].secondId, safeHandler);
+        if (lpTokenCover[safeHandler].firstId != 0)  removeLiquidity(lpTokenCover[safeHandler].firstId, safeHandler);
 
         // Get amounts withdrawn
         sysCoinBalance = add(
@@ -495,7 +495,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
      * @notice Remove all liquidity from the positions covering a specific SAFE
      * @param tokenId The ID of the position from which we withdraw liquidity
      */
-    function removeLiquidity(uint256 tokenId) internal {
+    function removeLiquidity(uint256 tokenId, address safeHandler) internal {
          (, , , , , , , uint128 liquidity) = positionManager.positions(tokenId);
 
         // We manually pack external calls to Uniswap to avoid using ABI coder V2 
@@ -511,6 +511,15 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
           bytes4(keccak256("collect((uint256,address,uint128,uint128))")),
           uint256(tokenId), address(this), uint128(-1), uint128(-1)
         ));
+
+        // Destroy the ERC721 token
+        positionManager.burn(tokenId);
+
+        // Update NFT entries
+        if (lpTokenCover[safeHandler].firstId == tokenId) {
+          lpTokenCover[safeHandler].firstId  = lpTokenCover[safeHandler].secondId;
+        }
+        lpTokenCover[safeHandler].secondId = 0;
     }
 
     // --- Getters ---
