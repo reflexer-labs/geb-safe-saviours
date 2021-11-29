@@ -18,4 +18,5 @@ abstract contract UniswapV3NonFungiblePositionManagerLike is IERC721 {
           int24 tickUpper,
           uint128 liquidity
         );
+    function burn(uint256 tokenId) public virtual;
 }

@@ -24,6 +24,8 @@ import "../integrations/uniswap/uni-v3/core/UniswapV3Pool.sol";
 import { TickMath } from "../integrations/uniswap/uni-v3/core/libraries/TickMath.sol";
 import { NonfungiblePositionManager } from "../integrations/uniswap/uni-v3/periphery/NonFungiblePositionManager.sol";
 import { INonfungiblePositionManager } from "../integrations/uniswap/uni-v3/periphery/interfaces/INonfungiblePositionManager.sol";
+import { SwapRouter } from "../integrations/uniswap/uni-v3/periphery/SwapRouter.sol";
+import { ISwapRouter } from "../integrations/uniswap/uni-v3/periphery/interfaces/ISwapRouter.sol";
 
 // Saviour
 import "../saviours/NativeUnderlyingMaxUniswapV3SafeSaviour.sol";
@@ -219,6 +221,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
     // Uniswap
     UniswapV3Factory uniV3Factory;
     NonfungiblePositionManager positionManager;
+    SwapRouter swapRouter;
     UniswapV3Pool pool;
 
     // GEB core
@@ -268,6 +271,9 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
     // Test safe config
     uint256 defaultCollateralAmount = 18 ether;
     uint256 defaultTokenAmount = 8000 ether; // max 16k RAI
+
+    // Uniswap
+    uint24 poolFee = uint24(3000);
 
     // constants
     uint256 WAD = 10**18;
@@ -355,11 +361,12 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         isSystemCoinToken0 = address(systemCoin) < address(weth);
         uniV3Factory = new UniswapV3Factory();
         positionManager = new NonfungiblePositionManager(address(uniV3Factory), address(weth), address(0));
+        swapRouter = new SwapRouter(address(uniV3Factory), address(weth));
         pool = UniswapV3Pool(
             positionManager.createAndInitializePoolIfNecessary(
                 address(systemCoin),
                 address(weth),
-                uint24(3000),
+                poolFee,
                 // sqrtx96 calculated using: https://uniswap-v3-calculator.netlify.app/
                 isSystemCoinToken0
                     ? uint160(2169752589937389744715760893)
@@ -485,7 +492,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         INonfungiblePositionManager.MintParams memory params = INonfungiblePositionManager.MintParams({
             token0: token0,
             token1: token1,
-            fee: uint24(3000),
+            fee: poolFee,
             tickLower: tickLower,
             tickUpper: tickUpper,
             amount0Desired: amount0,
@@ -924,6 +931,9 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         } catch Error(string memory reason) {
             assertEq(reason, "ERC721: owner query for nonexistent token");
         }
+
+        // Check reserves
+        assertEq(saviour.underlyingReserves(safeHandler), 0);
     }
 
     function test_saveSAFE_two_position() public {
@@ -954,6 +964,18 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         } catch Error(string memory reason) {
             assertEq(reason, "ERC721: owner query for nonexistent token");
         }
+
+        // Check reserves
+        uint256 expectedReserveAmount = defaultTokenAmount *
+            2 -
+            initRAIETHPairLiquidity -
+            minKeeperPayoutValue /
+            3 -
+            10; // rounding error from Uniswap
+        assertEq(saviour.underlyingReserves(safeHandler), expectedReserveAmount);
+        uint256 sysCoinBefore = systemCoin.balanceOf(address(alice));
+        alice.doGetReserves(saviour, safe, address(alice));
+        assertEq(systemCoin.balanceOf(address(alice)), sysCoinBefore + expectedReserveAmount);
     }
 
     function test_saveSAFE_single_side_side_systemCoin() public {
@@ -986,6 +1008,9 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         } catch Error(string memory reason) {
             assertEq(reason, "ERC721: owner query for nonexistent token");
         }
+
+        // Check reserves
+        assertEq(saviour.underlyingReserves(safeHandler), 0);
     }
 
     function test_saveSAFE_single_side_side_collateral() public {
@@ -1018,6 +1043,9 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         } catch Error(string memory reason) {
             assertEq(reason, "ERC721: owner query for nonexistent token");
         }
+
+        // Check reserves
+        assertEq(saviour.underlyingReserves(safeHandler), 0);
     }
 
     function test_saveSAFE_failure_one_position() public {
@@ -1053,6 +1081,9 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
 
         // Can withdraw the nft
         default_withdraw_position(safe, tokenId);
+
+        // Check reserves
+        assertEq(saviour.underlyingReserves(safeHandler), 0);
     }
 
     function test_saveSAFE_failure_two_position() public {
@@ -1100,6 +1131,10 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         // Can withdraw the nfts
         default_withdraw_position(safe, tokenId1);
         default_withdraw_position(safe, tokenId2);
+
+        // Check reserves
+        // On failure all of the LP
+        assertEq(saviour.underlyingReserves(safeHandler), 0);
     }
 
     function test_saveSAFE_accumulated_rate() public {
@@ -1132,6 +1167,9 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         } catch Error(string memory reason) {
             assertEq(reason, "ERC721: owner query for nonexistent token");
         }
+
+        // Check reserves
+        assertEq(saviour.underlyingReserves(safeHandler), 1); // 1 wei rounding error from uniswap
     }
 
     function test_saveSAFE_repay_in_debt_floor() public {
@@ -1142,7 +1180,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
             isSystemCoinToken0 ? address(systemCoin) : address(weth),
             isSystemCoinToken0 ? address(weth) : address(systemCoin),
             isSystemCoinToken0 ? true : false,
-            defaultTokenAmount - ethFloor / 2 // In the middle of debtFloor
+            defaultTokenAmount + minKeeperPayoutValue / 3 - ethFloor / 2 // In the middle of debtFloor
         );
 
         default_deposit_position(safe, tokenId);
@@ -1150,7 +1188,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         liquidationEngine.liquidateSAFE("eth", safeHandler);
         (uint256 collateralAfter, uint256 debtAfter) = safeEngine.safes("eth", safeHandler);
 
-        assertLt(debtAfter, ethFloor);
+        assertEq(debtAfter, ethFloor);
         assertGt(collateralAfter, 0);
 
         // Check NFT
@@ -1162,5 +1200,66 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         } catch Error(string memory reason) {
             assertEq(reason, "ERC721: owner query for nonexistent token");
         }
+
+        // Check reserves
+        assertGt(saviour.underlyingReserves(safeHandler), 0);
+        uint256 sysCoinBefore = systemCoin.balanceOf(address(alice));
+        alice.doGetReserves(saviour, safe, address(alice));
+        assertEq(systemCoin.balanceOf(address(alice)), sysCoinBefore + ethFloor / 2 - 21); // 21 is rounding error from Uniswap
+    }
+
+    function test_saveSAFE_after_swaps() public {
+        (uint256 safe, address safeHandler) = default_create_liquidatable_position();
+        uint256 tokenId = default_create_position_and_deposit(safe);
+
+        default_mint_full_range_uni_position(initRAIETHPairLiquidity, initETHRAIPairLiquidity);
+
+        weth.approve(address(swapRouter), uint256(-1));
+        (, int24 tickBefore, , , , , ) = pool.slot0();
+        swapRouter.exactInputSingle(
+            ISwapRouter.ExactInputSingleParams({
+                tokenIn: address(weth),
+                tokenOut: address(systemCoin),
+                fee: poolFee,
+                recipient: address(this),
+                deadline: block.timestamp,
+                amountIn: initRAIETHPairLiquidity,
+                amountOutMinimum: 0,
+                sqrtPriceLimitX96: 0
+            })
+        );
+        (, int24 tickAfter, , , , , ) = pool.slot0();
+
+        assertGt(tickAfter, tickBefore);
+
+        uint256 balWethBefore = weth.balanceOf(address(this));
+        uint256 balSysCoinBefore = systemCoin.balanceOf(address(this));
+
+        (uint256 collateralBefore, uint256 debtBefore) = safeEngine.safes("eth", safeHandler);
+        liquidationEngine.liquidateSAFE("eth", safeHandler);
+        (uint256 collateralAfter, uint256 debtAfter) = safeEngine.safes("eth", safeHandler);
+
+        // Check safe
+        assertEq(debtAfter, debtBefore); // Debt unchanged because it was use to pay keeper
+        assertGt(collateralAfter, collateralBefore);
+        assertGt(debtAfter, 0);
+        assertGt(collateralAfter, 0);
+
+        // Keeper payout
+        assertGt(weth.balanceOf(address(this)), balWethBefore);
+        assertGt(systemCoin.balanceOf(address(this)), balSysCoinBefore);
+
+        // Check NFT
+        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
+        assertEq(first, 0);
+        assertEq(second, 0);
+        try positionManager.ownerOf(tokenId) {
+            fail();
+        } catch Error(string memory reason) {
+            assertEq(reason, "ERC721: owner query for nonexistent token");
+        }
+
+        // Check reserves
+        assertEq(saviour.underlyingReserves(safeHandler), 0);
     }
 }

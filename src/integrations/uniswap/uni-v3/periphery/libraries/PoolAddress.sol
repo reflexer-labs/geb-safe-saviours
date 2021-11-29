@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity >=0.5.0;
 
+import { UniswapV3Pool } from "../../core/UniswapV3Pool.sol";
+
 /// @title Provides functions for deriving a pool address from the factory, tokens, and the fee
 library PoolAddress {
-    bytes32 internal constant POOL_INIT_CODE_HASH = 0xfd296e6bbea7786d9ac4077c1699432d0370463092c3971a7aee409ac950e1b3;
+    bytes32 internal constant POOL_INIT_CODE_HASH = keccak256(type(UniswapV3Pool).creationCode);
 
     /// @notice The identifying key of the pool
     struct PoolKey {
