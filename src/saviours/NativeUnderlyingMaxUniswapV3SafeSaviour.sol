@@ -17,9 +17,8 @@ pragma solidity >=0.6.7;
 
 import "../interfaces/SafeSaviourLike.sol";
 import "../interfaces/UniswapV3NonFungiblePositionManagerLike.sol";
-import "../interfaces/UniswapV3LiquidityRemoverLike.sol";
 
-import {UniswapV3PoolLike, UniswapV3FeeCalculator} from "../integrations/uniswap/uni-v3/UniswapV3FeeCalculator.sol";
+import {UniswapV3PoolLike} from "../integrations/uniswap/uni-v3/UniswapV3FeeCalculator.sol";
 
 import "../math/SafeMath.sol";
 
@@ -103,10 +102,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
     // NFT position manager for Uniswap v3
     UniswapV3NonFungiblePositionManagerLike public positionManager;
-    // Uniswap fee calculator for each position
-    UniswapV3FeeCalculator                  public feeCalculator;
-    // Contract helping with liquidity removal
-    UniswapV3LiquidityRemoverLike           public liquidityRemover;
     // The ERC20 system coin
     ERC20Like                               public systemCoin;
     // The system coin join contract
@@ -152,7 +147,10 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         address saviourRegistry_,
         address positionManager_,
         address targetUniswapPool_,
-        address liquidityRemover_,
+        address liquidationEngine_,
+        address taxCollector_,
+        address safeEngine_,
+        address systemCoinOrcl_,
         uint256 minKeeperPayoutValue_
     ) public {
         require(coinJoin_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-coin-join");
@@ -162,7 +160,10 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         require(saviourRegistry_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-saviour-registry");
         require(positionManager_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-positions-manager");
         require(targetUniswapPool_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-target-pool");
-        require(liquidityRemover_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-liquidity-remover");
+        require(liquidationEngine_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-liquidation-engine");
+        require(taxCollector_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-tax-collector");
+        require(safeEngine_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-safe-engine");
+        require(systemCoinOrcl_ != address(0), "NativeUnderlyingMaxUniswapV3SafeSaviour/null-system-coin-oracle");
         require(minKeeperPayoutValue_ > 0, "NativeUnderlyingMaxUniswapV3SafeSaviour/invalid-min-payout-value");
 
         authorizedAccounts[msg.sender] = 1;
@@ -177,7 +178,10 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         systemCoin           = ERC20Like(coinJoin.systemCoin());
         safeEngine           = SAFEEngineLike(coinJoin.safeEngine());
         safeManager          = GebSafeManagerLike(safeManager_);
-        liquidityRemover     = UniswapV3LiquidityRemoverLike(liquidityRemover_);
+        liquidationEngine    = LiquidationEngineLike(liquidationEngine_);
+        taxCollector         = TaxCollectorLike(taxCollector_);
+        safeEngine           = SAFEEngineLike(safeEngine_);
+        systemCoinOrcl       = PriceFeedLike(systemCoinOrcl_);
         saviourRegistry      = SAFESaviourRegistryLike(saviourRegistry_);
         positionManager      = UniswapV3NonFungiblePositionManagerLike(positionManager_);
         collateralToken      = ERC20Like(collateralJoin.collateral());
@@ -194,7 +198,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         emit AddAuthorization(msg.sender);
         emit ModifyParameters("minKeeperPayoutValue", minKeeperPayoutValue);
         emit ModifyParameters("oracleRelayer", oracleRelayer_);
-        emit ModifyParameters("liquidityRemover", liquidityRemover_);
         emit ModifyParameters("positionManager", positionManager_);
     }
 
@@ -242,12 +245,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         }
         else if (parameter == "taxCollector") {
             taxCollector = TaxCollectorLike(data);
-        }
-        else if (parameter == "feeCalculator") {
-            feeCalculator = UniswapV3FeeCalculator(data);
-        }
-        else if (parameter == "liquidityRemover") {
-            liquidityRemover = UniswapV3LiquidityRemoverLike(data);
         }
         else revert("NativeUnderlyingMaxUniswapV3SafeSaviour/modify-unrecognized-param");
         emit ModifyParameters(parameter, data);
@@ -343,7 +340,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         );
         require(
           either(lpTokenCover[safeHandler].firstId == tokenId, lpTokenCover[safeHandler].secondId == tokenId),
-          "NativeUnderlyingMaxUniswapV3SafeSaviour/cannot-add-more-positions"
+          "NativeUnderlyingMaxUniswapV3SafeSaviour/position-not-depostied"
         );
 
         // Update NFT entries
@@ -402,8 +399,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         }
 
         // Withdraw all liquidity
-        if (lpTokenCover[safeHandler].secondId != 0) removeLiquidity(lpTokenCover[safeHandler].secondId);
-        if (lpTokenCover[safeHandler].firstId != 0)  removeLiquidity(lpTokenCover[safeHandler].firstId);
+        if (lpTokenCover[safeHandler].secondId != 0) removeLiquidity(lpTokenCover[safeHandler].secondId, safeHandler);
+        if (lpTokenCover[safeHandler].firstId != 0)  removeLiquidity(lpTokenCover[safeHandler].firstId, safeHandler);
 
         // Get amounts withdrawn
         sysCoinBalance = add(
@@ -498,20 +495,31 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
      * @notice Remove all liquidity from the positions covering a specific SAFE
      * @param tokenId The ID of the position from which we withdraw liquidity
      */
-    function removeLiquidity(uint256 tokenId) internal {
-        // Approve the position to be handled by the liquidity remover
-        positionManager.approve(address(liquidityRemover), tokenId);
+    function removeLiquidity(uint256 tokenId, address safeHandler) internal {
+         (, , , , , , , uint128 liquidity) = positionManager.positions(tokenId);
 
-        // Remove liquidity and fees
-        liquidityRemover.removeAllLiquidity(tokenId);
+        // We manually pack external calls to Uniswap to avoid using ABI coder V2 
 
-        // Checks
-        require(positionManager.ownerOf(tokenId) == address(this), "NativeUnderlyingMaxUniswapV3SafeSaviour/position-not-back");
+        // Remove the position but does not transfer tokens
+        address(positionManager).call(abi.encodeWithSelector(
+          bytes4(keccak256("decreaseLiquidity((uint256,uint128,uint256,uint256,uint256))")),
+          uint256(tokenId), uint128(liquidity), uint256(0), uint256(0), uint256(block.timestamp)
+        ));
 
-        ( ,,,,,,,
-          uint128 liquidity
-        ) = positionManager.positions(tokenId);
-        require(liquidity == 0, "NativeUnderlyingMaxUniswapV3SafeSaviour/invalid-liquidity-decrease");
+        // Collect LP fees + transfer all the tokens
+        address(positionManager).call(abi.encodeWithSelector(
+          bytes4(keccak256("collect((uint256,address,uint128,uint128))")),
+          uint256(tokenId), address(this), uint128(-1), uint128(-1)
+        ));
+
+        // Destroy the ERC721 token
+        positionManager.burn(tokenId);
+
+        // Update NFT entries
+        if (lpTokenCover[safeHandler].firstId == tokenId) {
+          lpTokenCover[safeHandler].firstId  = lpTokenCover[safeHandler].secondId;
+        }
+        lpTokenCover[safeHandler].secondId = 0;
     }
 
     // --- Getters ---
@@ -578,37 +586,53 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
       address safeHandler,
       uint256 coinsLeft,
       uint256 collateralLeft
-    ) public view returns (uint256, uint256) {
+    ) public returns (uint256, uint256) {
         if (both(coinsLeft == 0, collateralLeft == 0)) {
             return (0, 0);
         }
 
         // Get the default CRatio for the SAFE
-        (uint256 depositedCollateralToken, uint256 safeDebt) =
+        (uint256 depositedCollateralToken, uint256 nonAdjustedSafeDebt) =
           SAFEEngineLike(collateralJoin.safeEngine()).safes(collateralJoin.collateralType(), safeHandler);
-        if (safeDebt == 0) {
+        
+        if (nonAdjustedSafeDebt == 0) {
             return (0, 0);
-        }
-
-        // See how many system coins can be used to save the SAFE
-        uint256 usedSystemCoins;
-        if (coinsLeft > 0) {
-          (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralJoin.collateralType());
-          if (coinsLeft >= safeDebt) usedSystemCoins = safeDebt;
-          else if (debtFloor < safeDebt) {
-            usedSystemCoins = min(sub(safeDebt, debtFloor), coinsLeft);
-          }
         }
 
         // See if the SAFE can be saved by adding all collateral left
         (uint256 accumulatedRate, uint256 liquidationPrice) =
           getAccumulatedRateAndLiquidationPrice(collateralJoin.collateralType());
+
+        uint256 nonAdjustedCoinsLeft = div(mul(coinsLeft, RAY), accumulatedRate);
+
+        // Calculate how many coins can be used to save the SAFE
+        uint256 nonAdjustedUsedSystemCoins;
+        if (coinsLeft > 0) {
+          (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralJoin.collateralType()); // RAD
+          
+          if (nonAdjustedCoinsLeft >= nonAdjustedSafeDebt) {
+            // The debt can be fully repaid by the savior
+            nonAdjustedUsedSystemCoins = nonAdjustedSafeDebt;
+          }
+          else if (mul(nonAdjustedSafeDebt, accumulatedRate) > debtFloor) {
+            // The debt is partially repaid by the saviour.
+            // Make sure we don't endup below the debt floor
+            nonAdjustedUsedSystemCoins =  min(sub(nonAdjustedSafeDebt, div(debtFloor, RAY)), nonAdjustedCoinsLeft);
+          } else {
+            // The debt is already smaller than the floor. This is an edge caused by having lowered the debt floor. Don't touch it.
+            nonAdjustedUsedSystemCoins = 0;
+          }
+        }
+
+        
         bool safeSaved = (
-          mul(add(depositedCollateralToken, collateralLeft), liquidationPrice) <
-          mul(sub(safeDebt, usedSystemCoins), accumulatedRate)
+          mul(sub(nonAdjustedSafeDebt, nonAdjustedUsedSystemCoins), accumulatedRate) <= 
+          mul(add(depositedCollateralToken, collateralLeft), liquidationPrice)
         );
 
-        if (safeSaved) return (usedSystemCoins, collateralLeft);
+        uint256 adjustedUsedSystemCoins =  div(mul(nonAdjustedUsedSystemCoins, accumulatedRate), RAY);
+
+        if (safeSaved) return (adjustedUsedSystemCoins, collateralLeft);
         else {
           return (0, 0);
         }
