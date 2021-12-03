@@ -181,7 +181,6 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         require(address(lpToken) != address(0), "CurveV1MaxSafeSaviour/null-curve-lp-token");
         require(address(safeEngine) != address(0), "CurveV1MaxSafeSaviour/null-safe-engine");
         require(address(systemCoin) != address(0), "CurveV1MaxSafeSaviour/null-sys-coin");
-        require(!curvePool.is_killed(), "CurveV1MaxSafeSaviour/pool-killed");
 
         address[] memory coins = curvePool.coins();
         require(coins.length > 1, "CurveV1MaxSafeSaviour/no-pool-coins");
@@ -298,7 +297,6 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
     */
     function deposit(bytes32 collateralType, uint256 safeID, uint256 lpTokenAmount)
       external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
-        require(!curvePool.is_killed(), "CurveV1MaxSafeSaviour/pool-killed");
         require(lpTokenAmount > 0, "CurveV1MaxSafeSaviour/null-lp-amount");
 
         // Check that the SAFE exists inside GebSafeManager
