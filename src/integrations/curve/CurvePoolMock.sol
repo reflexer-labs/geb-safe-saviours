@@ -28,8 +28,8 @@ contract CurvePoolMock {
         sendFewTokens = !sendFewTokens;
     }
 
-    function coins() public view returns (address[] memory) {
-        return _coins;
+    function coins(uint256 index) public view returns (address) {
+        return _coins[index];
     }
 
     function redemption_price_snap() public view returns (address) {

@@ -182,12 +182,11 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
         require(address(safeEngine) != address(0), "CurveV1MaxSafeSaviour/null-safe-engine");
         require(address(systemCoin) != address(0), "CurveV1MaxSafeSaviour/null-sys-coin");
 
-        address[] memory coins = curvePool.coins();
-        require(coins.length > 1, "CurveV1MaxSafeSaviour/no-pool-coins");
-
-        for (uint i = 0; i < coins.length; i++) {
+        for (uint i = 0; i < 2; i++) {
+          address coin = curvePool.coins(i);
+          require(coin != address(0), 'CurveV1MaxSafeSaviour/missing-coin');
+          poolTokens.push(coin);
           defaultMinTokensToWithdraw.push(0);
-          poolTokens.push(coins[i]);
         }
 
         emit AddAuthorization(msg.sender);
