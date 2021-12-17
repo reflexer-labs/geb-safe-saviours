@@ -40,7 +40,7 @@ contract CurvePoolMock {
         return address(lpToken);
     }
 
-    function remove_liquidity(uint256 _amount, uint256[] memory _min_amounts) public returns (uint256[] memory) {
+    function remove_liquidity(uint256 _amount, uint256[2] memory _min_amounts) public returns (uint256[] memory) {
         require(lpToken.transferFrom(msg.sender, address(this), _amount), "CurvePoolMock/cannot-transfer-lp-token");
 
         uint256 amountSent;
