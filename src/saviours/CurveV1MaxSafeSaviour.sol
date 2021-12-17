@@ -187,7 +187,7 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
 
         require(both(coin0 != address(0), coin1 != address(0)));
 
-        poolTokens= [coin0, coin1];
+        poolTokens = [coin0, coin1];
         defaultMinTokensToWithdraw = [0, 0];
         
         emit AddAuthorization(msg.sender);
