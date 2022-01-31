@@ -1157,4 +1157,136 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
         // It should have no system coins to transfer and fail
         saviour.getReserves(safe, address(secondCurveToken), address(this));
     }
+
+    function test_saveSAFE_2_users() public {
+        FakeUser bob = new FakeUser();
+
+        uint256 safeAlice = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandlerAlice = safeManager.safes(safeAlice);
+
+        uint256 safeBob = alice.doOpenSafe(safeManager, "eth", address(bob));
+        address safeHandlerBob = safeManager.safes(safeBob);
+
+        default_modify_collateralization(safeAlice, safeHandlerAlice);
+        
+        // Add deb and collateral to bob's safe
+        weth.approve(address(collateralJoin), uint256(-1));
+        collateralJoin.join(address(safeHandlerBob), defaultTokenAmount);
+        bob.doModifySAFECollateralization(
+            safeManager,
+            safeBob,
+            int256(defaultCollateralAmount),
+            int256(defaultTokenAmount * 10)
+        );
+
+
+        alice.doTransferInternalCoins(
+            safeManager,
+            safeAlice,
+            address(coinJoin),
+            safeEngine.coinBalance(safeHandlerAlice)
+        );
+        bob.doTransferInternalCoins(
+            safeManager,
+            safeBob,
+            address(coinJoin),
+            safeEngine.coinBalance(safeHandlerBob)
+        );
+        
+        alice.doProtectSAFE(safeManager, safeAlice, address(liquidationEngine), address(saviour));
+        bob.doProtectSAFE(safeManager, safeBob, address(liquidationEngine), address(saviour));
+
+        alice.doDeposit(
+            saviour,
+            DSToken(address(curveLpToken)),
+            "eth",
+            safeAlice,
+            (initTokenAmount * initTokenAmount) / 10
+        );
+
+        curveLpToken.mint(address(bob), initTokenAmount * initTokenAmount);
+        bob.doDeposit(
+            saviour,
+            DSToken(address(curveLpToken)),
+            "eth",
+            safeBob,
+            (initTokenAmount * initTokenAmount) / 10
+        );
+
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 2);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 2);
+        oracleRelayer.updateCollateralPrice("eth");
+        liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
+        liquidationEngine.modifyParameters("eth", "liquidationPenalty", 1.1 ether);
+
+        assertEq(
+            secondCurveToken.balanceOf(address(saviour)), 
+            saviour.underlyingReserves(safeHandlerAlice,address(secondCurveToken)) + saviour.underlyingReserves(safeHandlerBob,address(secondCurveToken))
+        );
+        
+        assertEq(saviour.yvTokenCover("eth", safeHandlerAlice), (initTokenAmount * initTokenAmount) / 10);
+        assertEq(saviour.yvTokenCover("eth", safeHandlerBob), (initTokenAmount * initTokenAmount) / 10);
+        assertEq(yearnVault.balanceOf(address(saviour)), (initTokenAmount * initTokenAmount) / 10 * 2);
+
+        uint256 keeperBal0 = systemCoin.balanceOf(address(this));
+        uint256 auction0 = liquidationEngine.liquidateSAFE("eth", safeHandlerAlice);
+        uint256 keeperBal1 = systemCoin.balanceOf(address(this));
+        
+        assertEq(yearnVault.balanceOf(address(saviour)), (initTokenAmount * initTokenAmount) / 10);
+        
+        uint256 auction1 = liquidationEngine.liquidateSAFE("eth", safeHandlerBob);
+        uint256 keeperBal2 = systemCoin.balanceOf(address(this));
+
+        assertEq(auction0, 0);
+        assertEq(auction1, 0);
+
+        // Keeper payments
+        assertGt(keeperBal2 - keeperBal0, 0);
+        assertEq(keeperBal2-keeperBal1, keeperBal1-keeperBal0);
+        // Cover is gone
+        assertEq(saviour.yvTokenCover("eth", safeHandlerAlice), 0);
+        assertEq(saviour.yvTokenCover("eth", safeHandlerBob), 0);
+        // Second curve token accounting
+        assertEq(
+            secondCurveToken.balanceOf(address(saviour)), 
+            saviour.underlyingReserves(safeHandlerAlice,address(secondCurveToken)) + saviour.underlyingReserves(safeHandlerBob,address(secondCurveToken))
+        );
+        // SystemCoin token accounting
+        assertEq(
+            systemCoin.balanceOf(address(saviour)), 
+            saviour.underlyingReserves(safeHandlerAlice,address(systemCoin)) + saviour.underlyingReserves(safeHandlerBob,address(systemCoin))
+        );
+
+        // Get all reserves for each user
+
+        alice.doGetReserves(saviour, safeAlice, address(secondCurveToken), address(this));
+
+        assertEq(secondCurveToken.balanceOf(address(this)), defaultCoinAmount * 100);
+        assertEq(saviour.underlyingReserves(safeHandlerAlice, address(secondCurveToken)), 0);
+        assertEq(secondCurveToken.balanceOf(address(saviour)), defaultCoinAmount * 100);
+
+        bob.doGetReserves(saviour, safeBob, address(secondCurveToken), address(this));
+
+        assertEq(secondCurveToken.balanceOf(address(this)), defaultCoinAmount * 100 * 2);
+        assertEq(saviour.underlyingReserves(safeHandlerBob, address(secondCurveToken)), 0);
+        assertEq(secondCurveToken.balanceOf(address(saviour)), 0);
+
+        uint256 systemCoinBal0 = systemCoin.balanceOf(address(this));
+
+        alice.doGetReserves(saviour, safeAlice, address(systemCoin), address(this));
+
+        uint256 systemCoinBal1 = systemCoin.balanceOf(address(this));
+        
+        assertGt(systemCoinBal1 - systemCoinBal0, 0);
+        assertEq(saviour.underlyingReserves(safeHandlerAlice, address(systemCoin)), 0);
+
+
+        bob.doGetReserves(saviour, safeBob, address(systemCoin), address(this));
+
+        uint256 systemCoinBal2 = systemCoin.balanceOf(address(this));
+
+        assertGt(systemCoinBal2 - systemCoinBal1, 0);
+        assertEq(saviour.underlyingReserves(safeHandlerBob, address(systemCoin)), 0);
+        assertEq(systemCoinBal1 - systemCoinBal0, systemCoinBal2 - systemCoinBal1);
+    }
 }
