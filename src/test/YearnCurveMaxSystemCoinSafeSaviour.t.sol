@@ -198,6 +198,15 @@ contract FakeUser {
     ) external {
         manager.transferInternalCoins(safe, dst, amt);
     }
+
+    function doGetReserves(
+        YearnCurveMaxSafeSaviour saviour,
+        uint256 safe,
+        address token,
+        address dst
+    ) public {
+        saviour.getReserves(safe, token, dst);
+    }
 }
 
 contract YearnCurveMaxSafeSaviourTest is DSTest {
@@ -1114,5 +1123,38 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
         address safeHandler = safeManager.safes(safe);
         default_save(safe, safeHandler);
         default_second_save(safe, safeHandler);
+    }
+
+    function test_saveSAFE_and_getReserves() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler);
+
+        assertEq(
+            secondCurveToken.balanceOf(address(saviour)),
+            saviour.underlyingReserves(safeHandler, address(secondCurveToken))
+        );
+        assertEq(secondCurveToken.balanceOf(address(this)), 0);
+
+        alice.doGetReserves(saviour, safe, address(secondCurveToken), address(this));
+
+        assertEq(secondCurveToken.balanceOf(address(this)), defaultCoinAmount * 100);
+        assertEq(saviour.underlyingReserves(safeHandler, address(secondCurveToken)), 0);
+        assertEq(secondCurveToken.balanceOf(address(saviour)), 0);
+
+        alice.doGetReserves(saviour, safe, address(systemCoin), address(this));
+
+        assertGt(systemCoin.balanceOf(address(this)), defaultCoinAmount * 100);
+        assertEq(saviour.underlyingReserves(safeHandler, address(systemCoin)), 0);
+        assertEq(systemCoin.balanceOf(address(saviour)), 0);
+    }
+
+    function testFail_saveSAFE_and_getReserves_not_allowed() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler);
+
+        // It should have no system coins to transfer and fail
+        saviour.getReserves(safe, address(secondCurveToken), address(this));
     }
 }
