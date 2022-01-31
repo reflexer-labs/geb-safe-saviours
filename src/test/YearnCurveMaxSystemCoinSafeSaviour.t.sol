@@ -502,7 +502,7 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
         assertEq(lockedCollateral, 0);
         assertEq(generatedDebt, 0);
         // all debt goes to the accounting engine
-        assertTrue(accountingEngine.totalQueuedDebt() > 0);
+        assertGt(accountingEngine.totalQueuedDebt(), 0);
         // auction is for all collateral
         (, uint256 amountToSell, , , , , , uint256 amountToRaise) = collateralAuctionHouse.bids(auction);
         assertEq(amountToSell, defaultCollateralAmount);
@@ -705,201 +705,184 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
         alice.doWithdraw(saviour, "eth", safe, 0, defaultMaxLoss, address(this));
     }
 
-    // function test_withdraw() public {
-    //     (uint256 safe, address safeHandler) = default_create_position_deposit_cover();
+    function test_withdraw() public {
+        uint256 originalCurveLpTokenBalance = curveLpToken.balanceOf(address(alice));
 
-    //     // Withdraw
-    //     uint256 currentSysCoinBalanceAlice = systemCoin.balanceOf(address(alice));
-    //     uint256 currentSysCoinBalanceSaviour = yearnVault.balanceOf(address(saviour));
-    //     alice.doWithdraw(
-    //         saviour,
-    //         "eth",
-    //         safe,
-    //         saviour.yvTokenCover("eth", safeHandler),
-    //         defaultMaxLoss,
-    //         address(alice)
-    //     );
+        (uint256 safe, address safeHandler) = default_create_position_deposit_cover();
 
-    //     // Checks
-    //     assertEq(
-    //         systemCoin.balanceOf(address(alice)),
-    //         currentSysCoinBalanceAlice + currentSysCoinBalanceSaviour
-    //     );
-    //     assertEq(yearnVault.balanceOf(address(saviour)), saviour.yvTokenCover("eth", safeHandler));
-    //     assertEq(yearnVault.balanceOf(address(saviour)), 0);
-    // }
+        // Withdraw
+        alice.doWithdraw(
+            saviour,
+            "eth",
+            safe,
+            saviour.yvTokenCover("eth", safeHandler),
+            defaultMaxLoss,
+            address(alice)
+        );
 
-    // function test_withdraw_twice() public {
-    //     (uint256 safe, address safeHandler) = default_create_position_deposit_cover();
+        // Checks
+        assertEq(curveLpToken.balanceOf(address(alice)), originalCurveLpTokenBalance);
+        assertEq(yearnVault.balanceOf(address(saviour)), saviour.yvTokenCover("eth", safeHandler));
+        assertEq(yearnVault.balanceOf(address(saviour)), 0);
+    }
 
-    //     // Withdraw
-    //     uint256 currentSysCoinBalanceAlice = systemCoin.balanceOf(address(alice));
-    //     uint256 currentSysCoinBalanceSaviour = yearnVault.balanceOf(address(saviour));
-    //     alice.doWithdraw(
-    //         saviour,
-    //         "eth",
-    //         safe,
-    //         saviour.yvTokenCover("eth", safeHandler) / 2,
-    //         defaultMaxLoss,
-    //         address(alice)
-    //     );
+    function test_withdraw_twice() public {
+        uint256 originalCurveLpTokenBalance = curveLpToken.balanceOf(address(alice));
 
-    //     // Checks
-    //     assertEq(
-    //         systemCoin.balanceOf(address(alice)),
-    //         currentSysCoinBalanceAlice + currentSysCoinBalanceSaviour / 2
-    //     );
-    //     assertEq(yearnVault.balanceOf(address(saviour)), saviour.yvTokenCover("eth", safeHandler));
-    //     assertEq(yearnVault.balanceOf(address(saviour)), currentSysCoinBalanceSaviour / 2);
+        (uint256 safe, address safeHandler) = default_create_position_deposit_cover();
 
-    //     // Withdraw again
-    //     alice.doWithdraw(
-    //         saviour,
-    //         "eth",
-    //         safe,
-    //         saviour.yvTokenCover("eth", safeHandler),
-    //         defaultMaxLoss,
-    //         address(alice)
-    //     );
+        // Withdraw
+        alice.doWithdraw(
+            saviour,
+            "eth",
+            safe,
+            saviour.yvTokenCover("eth", safeHandler) / 2,
+            defaultMaxLoss,
+            address(alice)
+        );
 
-    //     // Checks
-    //     assertEq(
-    //         systemCoin.balanceOf(address(alice)),
-    //         currentSysCoinBalanceAlice + currentSysCoinBalanceSaviour
-    //     );
-    //     assertEq(yearnVault.balanceOf(address(saviour)), saviour.yvTokenCover("eth", safeHandler));
-    //     assertEq(yearnVault.balanceOf(address(saviour)), 0);
-    // }
+        // Checks
+        assertEq(curveLpToken.balanceOf(address(alice)), originalCurveLpTokenBalance - defaultCurveLpTokenDeposit / 2);
+        assertEq(yearnVault.balanceOf(address(saviour)), saviour.yvTokenCover("eth", safeHandler));
+        assertEq(yearnVault.balanceOf(address(saviour)), defaultCurveLpTokenDeposit / 2);
 
-    // function test_withdraw_custom_dst() public {
-    //     (uint256 safe, address safeHandler) = default_create_position_deposit_cover();
+        // Withdraw again
+        alice.doWithdraw(
+            saviour,
+            "eth",
+            safe,
+            saviour.yvTokenCover("eth", safeHandler),
+            defaultMaxLoss,
+            address(alice)
+        );
 
-    //     // Withdraw
-    //     uint256 currentSysCoinBalanceAlice = systemCoin.balanceOf(address(alice));
-    //     uint256 currentSysCoinBalanceSaviour = yearnVault.balanceOf(address(saviour));
-    //     alice.doWithdraw(
-    //         saviour,
-    //         "eth",
-    //         safe,
-    //         saviour.yvTokenCover("eth", safeHandler),
-    //         defaultMaxLoss,
-    //         address(0xb1)
-    //     );
+        // Checks
+        assertEq(curveLpToken.balanceOf(address(alice)), originalCurveLpTokenBalance);
+        assertEq(yearnVault.balanceOf(address(saviour)), saviour.yvTokenCover("eth", safeHandler));
+        assertEq(yearnVault.balanceOf(address(saviour)), 0);
+    }
 
-    //     // Checks
-    //     assertEq(saviour.yvTokenCover("eth", safeHandler), 0);
-    //     assertEq(systemCoin.balanceOf(address(0xb1)), currentSysCoinBalanceSaviour);
-    //     assertEq(systemCoin.balanceOf(address(alice)), currentSysCoinBalanceAlice);
-    //     assertEq(yearnVault.balanceOf(address(saviour)), 0);
-    //     assertEq(yearnVault.balanceOf(address(saviour)), 0);
-    // }
+    function test_withdraw_custom_dst() public {
+        uint256 originalCurveLpTokenBalance = curveLpToken.balanceOf(address(alice));
 
-    // function test_getSystemCoinMarketPrice_invalid() public {
-    //     systemCoinOracle.changeValidity();
-    //     assertEq(saviour.getSystemCoinMarketPrice(), 0);
-    // }
+        (uint256 safe, address safeHandler) = default_create_position_deposit_cover();
 
-    // function test_getSystemCoinMarketPrice_null_price() public {
-    //     systemCoinOracle.updateCollateralPrice(0);
-    //     assertEq(saviour.getSystemCoinMarketPrice(), 0);
-    // }
+        // Withdraw
+        alice.doWithdraw(
+            saviour,
+            "eth",
+            safe,
+            saviour.yvTokenCover("eth", safeHandler),
+            defaultMaxLoss,
+            address(0xb1)
+        );
 
-    // function test_getSystemCoinMarketPrice() public {
-    //     assertEq(saviour.getSystemCoinMarketPrice(), initRAIUSDPrice);
-    // }
+        // Checks
+        assertEq(saviour.yvTokenCover("eth", safeHandler), 0);
+        assertEq(curveLpToken.balanceOf(address(0xb1)), defaultCurveLpTokenDeposit);
+        assertEq(curveLpToken.balanceOf(address(alice)), originalCurveLpTokenBalance - defaultCurveLpTokenDeposit);
+        assertEq(yearnVault.balanceOf(address(saviour)), 0);
+        assertEq(yearnVault.balanceOf(address(saviour)), 0);
+    }
 
-    // function test_getTokensForSaving_no_cover() public {
-    //     address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
+    function test_getSystemCoinMarketPrice_invalid() public {
+        systemCoinOracle.changeValidity();
+        assertEq(saviour.getSystemCoinMarketPrice(), 0);
+    }
 
-    //     uint256 sysCoins = saviour.getTokensForSaving("eth", safeHandler, 10**18, 250 ether);
+    function test_getSystemCoinMarketPrice_null_price() public {
+        systemCoinOracle.updateCollateralPrice(0);
+        assertEq(saviour.getSystemCoinMarketPrice(), 0);
+    }
 
-    //     assertEq(sysCoins, 0);
-    // }
+    function test_getSystemCoinMarketPrice() public {
+        assertEq(saviour.getSystemCoinMarketPrice(), initRAIUSDPrice);
+    }
 
-    // function test_getTokensForSaving_inexistent_position() public {
-    //     uint256 sysCoins = saviour.getTokensForSaving("eth", address(0xb1), 10**18, 1);
+    function test_getTokensForSaving_no_cover() public {
+        address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
+        uint sysCoins = saviour.getTokensForSaving("eth", safeHandler, 0);
 
-    //     assertEq(sysCoins, 0);
-    // }
+        assertEq(sysCoins, 0);
+    }
+    function test_getTokensForSaving_inexistent_position() public {
+        uint sysCoins = saviour.getTokensForSaving("eth", address(0x1), 100);
 
-    // function test_getTokensForSaving_no_debt() public {
-    //     uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-    //     address safeHandler = safeManager.safes(safe);
-    //     uint256 sysCoins = saviour.getTokensForSaving("eth", safeHandler, 10**18, 1);
+        assertEq(sysCoins, 0);
+    }
+    function test_getTokensForSaving_no_debt() public {
+        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        uint sysCoins = saviour.getTokensForSaving("eth", safeHandler, 100);
 
-    //     assertEq(sysCoins, 0);
-    // }
+        assertEq(sysCoins, 0);
+    }
+    function test_getTokensForSaving_coins_higher_than_debt() public {
+        address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
+        uint sysCoins = saviour.getTokensForSaving("eth", safeHandler, defaultTokenAmount * 20);
 
-    // function test_getTokensForSaving_coins_higher_than_debt() public {
-    //     address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
-    //     alice.doDeposit(saviour, DSToken(address(curveLpToken)), "eth", 1, defaultCurveLpTokenDeposit * 10);
-    //     uint256 sysCoins = saviour.getTokensForSaving("eth", safeHandler, 10**18, 1);
+        assertEq(sysCoins, defaultTokenAmount * 10);
+    }
+    function test_getTokensForSaving_coins_between_floor_and_debt() public {
+        address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
+        uint sysCoins = saviour.getTokensForSaving("eth", safeHandler, defaultTokenAmount * 8);
 
-    //     assertEq(sysCoins, defaultTokenAmount * 10);
-    // }
+        assertEq(sysCoins, defaultTokenAmount * 8);
+    }
+    function test_getTokensForSaving_coins_below_floor_and_debt() public {
+        address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
+        uint sysCoins = saviour.getTokensForSaving("eth", safeHandler, ethFloor / 2);
 
-    // function test_getTokensForSaving_keeper_fee_too_high() public {
-    //     address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
-    //     alice.doDeposit(saviour, DSToken(address(curveLpToken)), "eth", 1, defaultCurveLpTokenDeposit * 10);
-    //     uint256 sysCoins = saviour.getTokensForSaving("eth", safeHandler, 10**18, 1_000_000E18);
+        assertEq(sysCoins, 0);
+    }
 
-    //     assertEq(sysCoins, 0);
-    // }
+    function testFail_saveSAFE_invalid_caller() public {
+        address safeHandler = default_create_liquidatable_position_deposit_cover(initETHUSDPrice / 2);
+        saviour.saveSAFE(address(this), "eth", safeHandler);
+    }
 
-    // function test_getTokensForSaving_coins_below_floor_and_debt() public {
-    //     address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
-    //     alice.doDeposit(saviour, DSToken(address(curveLpToken)), "eth", 1, defaultCurveLpTokenDeposit / 10);
-    //     uint256 sysCoins = saviour.getTokensForSaving("eth", safeHandler, 10**18, 1);
+    function test_saveSAFE_no_cover() public {
+        address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
+        default_liquidate_safe(safeHandler);
+    }
 
-    //     assertEq(sysCoins, 0);
-    // }
+    function test_saveSAFE_cannot_save_safe() public {
+        // Create position
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
 
-    // function testFail_saveSAFE_invalid_caller() public {
-    //     address safeHandler = default_create_liquidatable_position_deposit_cover(initETHUSDPrice / 2);
-    //     saviour.saveSAFE(address(this), "eth", safeHandler);
-    // }
+        weth.approve(address(collateralJoin), uint256(-1));
+        collateralJoin.join(address(safeHandler), defaultTokenAmount);
+        alice.doModifySAFECollateralization(
+            safeManager,
+            safe,
+            int256(defaultCollateralAmount),
+            int256(defaultTokenAmount * 10)
+        );
 
-    // function test_saveSAFE_no_cover() public {
-    //     address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
-    //     default_liquidate_safe(safeHandler);
-    // }
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
 
-    // function test_saveSAFE_cannot_save_safe() public {
-    //     // Create position
-    //     uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-    //     address safeHandler = safeManager.safes(safe);
+        // Change oracle price
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 5);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 5);
+        oracleRelayer.updateCollateralPrice("eth");
 
-    //     weth.approve(address(collateralJoin), uint256(-1));
-    //     collateralJoin.join(address(safeHandler), defaultTokenAmount);
-    //     alice.doModifySAFECollateralization(
-    //         safeManager,
-    //         safe,
-    //         int256(defaultCollateralAmount),
-    //         int256(defaultTokenAmount * 10)
-    //     );
+        // Deposit cover and make sure the pool barely sends tokens
+        alice.doDeposit(saviour, DSToken(address(curveLpToken)), "eth", 1, 100);
+        poolMock.toggleSendFewTokens();
+        default_liquidate_safe(safeHandler);
 
-    //     alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
-    //     assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+        assertEq(yearnVault.balanceOf(address(saviour)), saviour.yvTokenCover("eth", safeHandler));
+        assertEq(saviour.yvTokenCover("eth", safeHandler), 100);
+    }
 
-    //     // Change oracle price
-    //     ethMedian.updateCollateralPrice(initETHUSDPrice / 5);
-    //     ethFSM.updateCollateralPrice(initETHUSDPrice / 5);
-    //     oracleRelayer.updateCollateralPrice("eth");
-
-    //     // Deposit cover and make sure the pool barely sends tokens
-    //     alice.doDeposit(saviour, DSToken(address(curveLpToken)), "eth", 1, defaultCurveLpTokenDeposit / 20);
-    //     default_liquidate_safe(safeHandler);
-
-    //     assertEq(yearnVault.balanceOf(address(saviour)), saviour.yvTokenCover("eth", safeHandler));
-    //     assertEq(saviour.yvTokenCover("eth", safeHandler), defaultCurveLpTokenDeposit / 20);
-    // }
-
-    // function test_saveSAFE_cannot_pay_keeper() public {
-    //     address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
-    //     alice.doDeposit(saviour, DSToken(address(curveLpToken)), "eth", 1, defaultCurveLpTokenDeposit * 10);
-    //     saviour.modifyParameters("minKeeperPayoutValue", 1_000_000_000 ether);
-    //     default_liquidate_safe(safeHandler);
-    // }
+    function test_saveSAFE_cannot_pay_keeper() public {
+        address safeHandler = default_create_liquidatable_position(initETHUSDPrice / 2);
+        alice.doDeposit(saviour, DSToken(address(curveLpToken)), "eth", 1, defaultCurveLpTokenDeposit * 10);
+        saviour.modifyParameters("minKeeperPayoutValue", 1_000_000_000 ether);
+        default_liquidate_safe(safeHandler);
+    }
 
     function test_saveSAFE() public {
         uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));

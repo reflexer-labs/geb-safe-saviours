@@ -600,53 +600,6 @@ contract YearnCurveMaxSafeSaviour is SafeMath, SafeSaviourLike {
         return 0;
     }
     /*
-    * @notice Return the amount of system coins used to save a SAFE
-    * @param collateralType The SAFE's collateral type
-    * @param safeHandler The handler/address of the targeted SAFE
-    * @param pricePerShare Current Yearn vault price per share
-    * @param systemCoinKeeperPayout Amount of system coins used to pay a keeper
-    */
-    // function getTokensForSaving(
-    //   bytes32 collateralType,
-    //   address safeHandler,
-    //   uint256 pricePerShare,
-    //   uint256 systemCoinKeeperPayout
-    // ) public view returns (uint256) {
-    //     if (either(systemCoinKeeperPayout == 0, yvTokenCover[collateralType][safeHandler] == 0)) {
-    //         return 0;
-    //     }
-
-    //     uint256 coinsLeft     = div(mul(yvTokenCover[collateralType][safeHandler], pricePerShare), WAD);
-    //     if (systemCoinKeeperPayout > coinsLeft) return 0;
-    //     coinsLeft             = sub(coinsLeft, systemCoinKeeperPayout);
-
-    //     // Get the default CRatio for the SAFE
-    //     (uint256 depositedCollateralToken, uint256 safeDebt) =
-    //       SAFEEngineLike(address(safeEngine)).safes(collateralType, safeHandler);
-    //     if (safeDebt == 0) {
-    //         return 0;
-    //     }
-
-    //     // See how many system coins can be used to save the SAFE
-    //     uint256 usedSystemCoins;
-    //     (, , , , uint256 debtFloor, ) = safeEngine.collateralTypes(collateralType);
-    //     if (coinsLeft >= safeDebt) usedSystemCoins = safeDebt;
-    //     else if (debtFloor < safeDebt) {
-    //       usedSystemCoins = min(sub(safeDebt, debtFloor), coinsLeft);
-    //     }
-
-    //     // See if the SAFE can be saved
-    //     (uint256 accumulatedRate, uint256 liquidationPrice) =
-    //       getAccumulatedRateAndLiquidationPrice(collateralType);
-    //     bool safeSaved = (
-    //       mul(depositedCollateralToken, liquidationPrice) >
-    //       mul(sub(safeDebt, usedSystemCoins), accumulatedRate)
-    //     );
-
-    //     if (safeSaved) return div(mul(usedSystemCoins, WAD), pricePerShare);
-    //     return 0;
-    // }
-    /*
     * @notify Fetch the system coin's market price
     */
     function getSystemCoinMarketPrice() public view returns (uint256) {
