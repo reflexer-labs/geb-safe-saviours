@@ -479,6 +479,14 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
         ethFSM.updateCollateralPrice(initETHUSDPrice / 5);
         oracleRelayer.updateCollateralPrice("eth");
 
+        alice.doDeposit(
+            saviour,
+            DSToken(address(curveLpToken)),
+            "eth",
+            safe,
+            (initTokenAmount * initTokenAmount) / 10
+        );
+        
         liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(111 ether));
         liquidationEngine.modifyParameters("eth", "liquidationPenalty", 1.1 ether);
 
@@ -486,10 +494,22 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
         uint256 auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
 
         assertEq(auction, 0);
+        // Keeper got paid
         assertTrue(systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0);
-        assertTrue(saviour.yvTokenCover("eth", safeHandler) > 0);
-        assertEq(saviour.yvTokenCover("eth", safeHandler), yearnVault.balanceOf(address(saviour)));
-        assertEq(systemCoin.balanceOf(address(saviour)), 0);
+        // Cover is gone
+        assertEq(saviour.yvTokenCover("eth", safeHandler), 0);
+        // yv tokens are gone
+        assertEq(yearnVault.balanceOf(address(saviour)), 0);
+        // Still no curve LP in the savior (everything is withdrawn)
+        assertEq(curveLpToken.balanceOf(address(saviour)), 0);
+        // There is the secondary curve LP token left to be claimed (3CRV)
+        assertEq(secondCurveToken.balanceOf(address(saviour)), defaultCoinAmount * 100 * 2);
+        // Reserve is matching the balance of secondary
+        assertEq(secondCurveToken.balanceOf(address(saviour)), saviour.underlyingReserves(safeHandler,address(secondCurveToken)));
+        // Some RAI are left in the safe since we put a lot
+        assertGt(systemCoin.balanceOf(address(saviour)), 0);
+        // Savior syscoin balance matches the expected reserves from the only safe covered
+        assertEq(systemCoin.balanceOf(address(saviour)), saviour.underlyingReserves(safeHandler,address(systemCoin)));
     }
 
     function default_liquidate_safe(address safeHandler) internal {
@@ -890,184 +910,209 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
         default_save(safe, safeHandler);
     }
 
-    // function test_saveSAFE_accumulate_rate() public {
-    //     uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-    //     address safeHandler = safeManager.safes(safe);
+    function test_saveSAFE_accumulate_rate() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
 
-    //     // Warp and save
-    //     hevm.warp(now + 2 days);
-    //     taxCollector.taxSingle("eth");
+        // Warp and save
+        hevm.warp(now + 2 days);
+        taxCollector.taxSingle("eth");
 
-    //     weth.approve(address(collateralJoin), uint256(-1));
-    //     collateralJoin.join(address(safeHandler), defaultCollateralAmount);
-    //     alice.doModifySAFECollateralization(
-    //         safeManager,
-    //         safe,
-    //         int256(defaultCollateralAmount),
-    //         int256(defaultTokenAmount * 10)
-    //     );
+        default_modify_collateralization(safe, safeHandler);
 
-    //     alice.doTransferInternalCoins(
-    //         safeManager,
-    //         safe,
-    //         address(coinJoin),
-    //         safeEngine.coinBalance(safeHandler)
-    //     );
-    //     alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doTransferInternalCoins(
+            safeManager,
+            safe,
+            address(coinJoin),
+            safeEngine.coinBalance(safeHandler)
+        );
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
 
-    //     assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 2);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 2);
+        oracleRelayer.updateCollateralPrice("eth");
 
-    //     ethMedian.updateCollateralPrice(initETHUSDPrice / 2);
-    //     ethFSM.updateCollateralPrice(initETHUSDPrice / 2);
-    //     oracleRelayer.updateCollateralPrice("eth");
+        alice.doDeposit(
+            saviour,
+            DSToken(address(curveLpToken)),
+            "eth",
+            safe,
+            (initTokenAmount * initTokenAmount) / 10
+        );
 
-    //     alice.doDeposit(saviour, DSToken(address(systemCoin)), "eth", 1, defaultCurveLpTokenDeposit * 100);
-    //     assertEq(yearnVault.balanceOf(address(saviour)), defaultCurveLpTokenDeposit * 100);
+        // Warp and save
+        hevm.warp(now + 2 days);
+        taxCollector.taxSingle("eth");
 
-    //     liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
-    //     liquidationEngine.modifyParameters("eth", "liquidationPenalty", 1.1 ether);
+        assertEq(yearnVault.balanceOf(address(saviour)), (initTokenAmount * initTokenAmount) / 10);
+        assertEq(systemCoin.balanceOf(address(saviour)), 0);
+        assertEq(curveLpToken.balanceOf(address(saviour)), 0);
+        assertEq(secondCurveToken.balanceOf(address(saviour)), 0);
+        assertEq(saviour.yvTokenCover("eth", safeHandler), (initTokenAmount * initTokenAmount) / 10);
 
-    //     uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
-    //     uint256 preSaveSysCoinSaviourBalance = yearnVault.balanceOf(address(saviour));
+        liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
+        liquidationEngine.modifyParameters("eth", "liquidationPenalty", 1.1 ether);
 
-    //     uint256 auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
+        uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
+        uint256 auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
 
-    //     assertEq(auction, 0);
-    //     assertTrue(
-    //         systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
-    //             preSaveSysCoinSaviourBalance - yearnVault.balanceOf(address(saviour)) > 0
-    //     );
-    //     assertEq(yearnVault.balanceOf(address(saviour)), saviour.yvTokenCover("eth", safeHandler));
-    //     assertTrue(saviour.yvTokenCover("eth", safeHandler) > 0);
+        assertEq(auction, 0);
+        // Keeper got paid
+        assertTrue(systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0);
+        // Cover is gone
+        assertEq(saviour.yvTokenCover("eth", safeHandler), 0);
+        // yv tokens are gone
+        assertEq(yearnVault.balanceOf(address(saviour)), 0);
+        // Still no curve LP in the savior (everything is withdrawn)
+        assertEq(curveLpToken.balanceOf(address(saviour)), 0);
+        // There is the secondary curve LP token left to be claimed (3CRV)
+        assertEq(secondCurveToken.balanceOf(address(saviour)), defaultCoinAmount * 100);
+        // Reserve is matching the balance of secondary
+        assertEq(secondCurveToken.balanceOf(address(saviour)), saviour.underlyingReserves(safeHandler,address(secondCurveToken)));
+        // Some RAI are left in the safe since we put a lot
+        assertGt(systemCoin.balanceOf(address(saviour)), 0);
+        // Savior syscoin balance matches the expected reserves from the only safe covered
+        assertEq(systemCoin.balanceOf(address(saviour)), saviour.underlyingReserves(safeHandler,address(systemCoin)));
+    }
 
-    //     (uint256 lockedCollateral, uint256 generatedDebt) = safeEngine.safes("eth", safeHandler);
-    //     (, uint256 accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
-    //     assertTrue(
-    //         (lockedCollateral * ray(ethFSM.read()) * 100) /
-    //             ((generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate) / 10**27) >=
-    //             minCRatio / 10**17
-    //     );
-    // }
+    function test_saveSAFE_accumulate_rate_yearn_accumulates_gains() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
 
-    // function test_saveSAFE_accumulate_rate_yearn_accumulates_gains() public {
-    //     uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-    //     address safeHandler = safeManager.safes(safe);
+        // Mint some curve LP to the yearn vault to pay for its return
+        curveLpToken.mint(address(yearnVault), (initTokenAmount * initTokenAmount) / 10);
 
-    //     // Warp and save
-    //     hevm.warp(now + 2 days);
-    //     taxCollector.taxSingle("eth");
+        // Warp and save
+        hevm.warp(now + 2 days);
+        taxCollector.taxSingle("eth");
 
-    //     weth.approve(address(collateralJoin), uint256(-1));
-    //     collateralJoin.join(address(safeHandler), defaultCollateralAmount);
-    //     alice.doModifySAFECollateralization(
-    //         safeManager,
-    //         safe,
-    //         int256(defaultCollateralAmount),
-    //         int256(defaultTokenAmount * 10)
-    //     );
+        default_modify_collateralization(safe, safeHandler);
 
-    //     alice.doTransferInternalCoins(
-    //         safeManager,
-    //         safe,
-    //         address(coinJoin),
-    //         safeEngine.coinBalance(safeHandler)
-    //     );
-    //     alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        alice.doTransferInternalCoins(
+            safeManager,
+            safe,
+            address(coinJoin),
+            safeEngine.coinBalance(safeHandler)
+        );
+        alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
+        assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
 
-    //     assertEq(liquidationEngine.chosenSAFESaviour("eth", safeHandler), address(saviour));
+        ethMedian.updateCollateralPrice(initETHUSDPrice / 2);
+        ethFSM.updateCollateralPrice(initETHUSDPrice / 2);
+        oracleRelayer.updateCollateralPrice("eth");
 
-    //     ethMedian.updateCollateralPrice(initETHUSDPrice / 2);
-    //     ethFSM.updateCollateralPrice(initETHUSDPrice / 2);
-    //     oracleRelayer.updateCollateralPrice("eth");
+        alice.doDeposit(
+            saviour,
+            DSToken(address(curveLpToken)),
+            "eth",
+            safe,
+            (initTokenAmount * initTokenAmount) / 10
+        );
 
-    //     alice.doDeposit(saviour, DSToken(address(curveLpToken)), "eth", 1, defaultCurveLpTokenDeposit * 100);
-    //     assertEq(yearnVault.balanceOf(address(saviour)), defaultCurveLpTokenDeposit * 100);
+        // Warp and save
+        hevm.warp(now + 2 days);
+        taxCollector.taxSingle("eth");
 
-    //     liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
-    //     liquidationEngine.modifyParameters("eth", "liquidationPenalty", 1.1 ether);
+        assertEq(yearnVault.balanceOf(address(saviour)), (initTokenAmount * initTokenAmount) / 10);
+        assertEq(systemCoin.balanceOf(address(saviour)), 0);
+        assertEq(curveLpToken.balanceOf(address(saviour)), 0);
+        assertEq(secondCurveToken.balanceOf(address(saviour)), 0);
+        assertEq(saviour.yvTokenCover("eth", safeHandler), (initTokenAmount * initTokenAmount) / 10);
 
-    //     uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
-    //     uint256 preSaveSysCoinSaviourBalance = yearnVault.balanceOf(address(saviour));
+        liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
+        liquidationEngine.modifyParameters("eth", "liquidationPenalty", 1.1 ether);
 
-    //     yearnVault.setSharePrice(10**18 * 2);
-    //     uint256 auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
+        // 100% return in the yearn vault
+        yearnVault.setSharePrice(10**18 * 2);
 
-    //     assertEq(auction, 0);
-    //     assertTrue(
-    //         systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
-    //             preSaveSysCoinSaviourBalance - yearnVault.balanceOf(address(saviour)) > 0
-    //     );
-    //     assertEq(yearnVault.balanceOf(address(saviour)), saviour.yvTokenCover("eth", safeHandler));
-    //     assertTrue(saviour.yvTokenCover("eth", safeHandler) > 0);
+        uint256 preSaveSysCoinKeeperBalance = systemCoin.balanceOf(address(this));
+        uint256 auction = liquidationEngine.liquidateSAFE("eth", safeHandler);
 
-    //     (uint256 lockedCollateral, uint256 generatedDebt) = safeEngine.safes("eth", safeHandler);
-    //     (, uint256 accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
-    //     assertTrue(
-    //         (lockedCollateral * ray(ethFSM.read()) * 100) /
-    //             ((generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate) / 10**27) >=
-    //             minCRatio / 10**17
-    //     );
-    // }
+        assertEq(auction, 0);
+        // Keeper got paid
+        assertTrue(systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0);
+        // Cover is gone
+        assertEq(saviour.yvTokenCover("eth", safeHandler), 0);
+        // yv tokens are gone
+        assertEq(yearnVault.balanceOf(address(saviour)), 0);
+        // Still no curve LP in the savior (everything is withdrawn)
+        assertEq(curveLpToken.balanceOf(address(saviour)), 0);
+        // There is the secondary curve LP token left to be claimed (3CRV)
+        assertEq(secondCurveToken.balanceOf(address(saviour)), defaultCoinAmount * 100);
+        // Reserve is matching the balance of secondary
+        assertEq(secondCurveToken.balanceOf(address(saviour)), saviour.underlyingReserves(safeHandler,address(secondCurveToken)));
+        // Some RAI are left in the safe since we put a lot
+        assertGt(systemCoin.balanceOf(address(saviour)), 0);
+        // Savior syscoin balance matches the expected reserves from the only safe covered
+        assertEq(systemCoin.balanceOf(address(saviour)), saviour.underlyingReserves(safeHandler,address(systemCoin)));
+        // The Yearn mock has paid all the lp token in yeild 
+        assertEq(curveLpToken.balanceOf(address(yearnVault)), 0);
+    }
 
-    // function test_saveSAFE_twice() public {
-    //     uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-    //     address safeHandler = safeManager.safes(safe);
-    //     default_save(safe, safeHandler);
+    function test_saveSAFE_twice() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler);
 
-    //     hevm.warp(now + saviourRegistry.saveCooldown() + 1);
-    //     default_second_save(safe, safeHandler);
+        hevm.warp(now + saviourRegistry.saveCooldown() + 1);
+        default_second_save(safe, safeHandler);
 
-    //     (uint256 lockedCollateral, uint256 generatedDebt) = safeEngine.safes("eth", safeHandler);
-    //     (, uint256 accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
-    //     assertTrue(
-    //         (lockedCollateral * ray(ethFSM.read()) * 100) /
-    //             ((generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate) / 10**27) >=
-    //             minCRatio / 10**17
-    //     );
-    // }
+        (uint256 lockedCollateral, uint256 generatedDebt) = safeEngine.safes("eth", safeHandler);
+        (, uint256 accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
+        
+        assertTrue(
+            (lockedCollateral * ray(ethFSM.read()) * 100) /
+                ((generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate) / 10**27) >=
+                minCRatio / 10**17
+        );
+    }
 
-    // function test_saveSAFE_twice_yearn_compounds_gains() public {
-    //     uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-    //     address safeHandler = safeManager.safes(safe);
-    //     default_save(safe, safeHandler);
+    function test_saveSAFE_twice_yearn_compounds_gains() public {
 
-    //     yearnVault.setSharePrice(10**18 * 2);
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler);
 
-    //     hevm.warp(now + saviourRegistry.saveCooldown() + 1);
-    //     default_second_save(safe, safeHandler);
+        // Mint some curve LP to the yearn vault to pay for its return
+        curveLpToken.mint(address(yearnVault), (initTokenAmount * initTokenAmount) / 10);
+        yearnVault.setSharePrice(10**18 * 2);
 
-    //     (uint256 lockedCollateral, uint256 generatedDebt) = safeEngine.safes("eth", safeHandler);
-    //     (, uint256 accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
-    //     assertTrue(
-    //         (lockedCollateral * ray(ethFSM.read()) * 100) /
-    //             ((generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate) / 10**27) >=
-    //             minCRatio / 10**17
-    //     );
-    // }
+        hevm.warp(now + saviourRegistry.saveCooldown() + 1);
+        default_second_save(safe, safeHandler);
 
-    // function test_saveSAFE_twice_yearn_loses_gains() public {
-    //     uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-    //     address safeHandler = safeManager.safes(safe);
-    //     default_save(safe, safeHandler);
+        (uint256 lockedCollateral, uint256 generatedDebt) = safeEngine.safes("eth", safeHandler);
+        (, uint256 accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
+        assertTrue(
+            (lockedCollateral * ray(ethFSM.read()) * 100) /
+                ((generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate) / 10**27) >=
+                minCRatio / 10**17
+        );
+    }
 
-    //     yearnVault.setSharePrice((10**18 * 12) / 10);
+    function test_saveSAFE_twice_yearn_loses_gains() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler);
 
-    //     hevm.warp(now + saviourRegistry.saveCooldown() + 1);
-    //     default_second_save(safe, safeHandler);
+        yearnVault.setSharePrice((10**18 * 12) / 10);
 
-    //     (uint256 lockedCollateral, uint256 generatedDebt) = safeEngine.safes("eth", safeHandler);
-    //     (, uint256 accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
-    //     assertTrue(
-    //         (lockedCollateral * ray(ethFSM.read()) * 100) /
-    //             ((generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate) / 10**27) >=
-    //             minCRatio / 10**17
-    //     );
-    // }
+        hevm.warp(now + saviourRegistry.saveCooldown() + 1);
+        default_second_save(safe, safeHandler);
 
-    // function testFail_save_twice_without_waiting() public {
-    //     uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-    //     address safeHandler = safeManager.safes(safe);
-    //     default_save(safe, safeHandler);
-    //     default_second_save(safe, safeHandler);
-    // }
+        (uint256 lockedCollateral, uint256 generatedDebt) = safeEngine.safes("eth", safeHandler);
+        (, uint256 accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
+        assertTrue(
+            (lockedCollateral * ray(ethFSM.read()) * 100) /
+                ((generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate) / 10**27) >=
+                minCRatio / 10**17
+        );
+    }
+
+    function testFail_save_twice_without_waiting() public {
+        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
+        address safeHandler = safeManager.safes(safe);
+        default_save(safe, safeHandler);
+        default_second_save(safe, safeHandler);
+    }
 }
