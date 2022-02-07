@@ -89,9 +89,9 @@ contract CurveV1MaxSafeSaviour is SafeMath, SafeSaviourLike {
     // Array used to store amounts of tokens removed from Curve when a SAFE is saved
     uint256[]                                       public removedCoinLiquidity;
     // Default array of min tokens to withdraw
-    uint256[2]                                       public defaultMinTokensToWithdraw;
+    uint256[2]                                      public defaultMinTokensToWithdraw;
     // Array of tokens in the Curve pool
-    address[2]                                       public poolTokens;
+    address[2]                                      public poolTokens;
 
     // Amount of LP tokens currently protecting each position
     mapping(bytes32 => mapping(address => uint256)) public lpTokenCover;
