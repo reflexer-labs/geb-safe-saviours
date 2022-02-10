@@ -11,11 +11,11 @@ contract YearnVault3Mock is YVault3Like, DSToken {
 
     bool      private canTransferToken;
 
-    ERC20Like private token;
+    ERC20Like private lpToken;
 
     constructor(bool canTransferToken_, address token_, uint256 sharePrice_) public DSToken("YV", "YV") {
         canTransferToken = canTransferToken_;
-        token            = ERC20Like(token_);
+        lpToken            = ERC20Like(token_);
         sharePrice       = sharePrice_;
     }
 
@@ -30,7 +30,7 @@ contract YearnVault3Mock is YVault3Like, DSToken {
 
     // --- Core Logic ---
     function deposit(uint256 amount, address receiver) external override returns (uint256) {
-        token.transferFrom(msg.sender, address(this), amount);
+        lpToken.transferFrom(msg.sender, address(this), amount);
         mint(receiver, amount * WAD / sharePrice);
         return amount * WAD / sharePrice;
     }
@@ -38,11 +38,15 @@ contract YearnVault3Mock is YVault3Like, DSToken {
     function withdraw(uint256 amount, address receiver, uint256 maxLoss) external override returns (uint256) {
         if (!canTransferToken) revert();
         burn(msg.sender, amount);
-        token.transfer(receiver, amount * sharePrice / WAD);
+        lpToken.transfer(receiver, amount * sharePrice / WAD);
         return amount * sharePrice / WAD;
     }
 
     function pricePerShare() external override returns (uint256) {
         return sharePrice;
+    }
+
+    function token() external override returns (address) {
+        return address(lpToken);
     }
 }
