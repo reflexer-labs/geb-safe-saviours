@@ -184,10 +184,9 @@ contract FakeUser {
         bytes32 collateralType,
         uint256 safe,
         uint256 amount,
-        uint256 maxLoss,
         address dst
     ) public {
-        saviour.withdraw(collateralType, safe, amount, maxLoss, dst);
+        saviour.withdraw(collateralType, safe, amount, dst);
     }
 
     function doTransferInternalCoins(
@@ -679,7 +678,6 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
             "eth",
             safe,
             saviour.yvTokenCover("eth", safeHandler),
-            defaultMaxLoss,
             address(alice)
         );
 
@@ -712,7 +710,6 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
             "eth",
             safe,
             yearnVault.balanceOf(address(saviour)),
-            defaultMaxLoss,
             address(bob)
         );
     }
@@ -724,14 +721,13 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
             "eth",
             safe,
             saviour.yvTokenCover("eth", safeHandler) + 1,
-            defaultMaxLoss,
             address(this)
         );
     }
 
     function testFail_withdraw_null() public {
         (uint256 safe, address safeHandler) = default_create_position_deposit_cover();
-        alice.doWithdraw(saviour, "eth", safe, 0, defaultMaxLoss, address(this));
+        alice.doWithdraw(saviour, "eth", safe, 0, address(this));
     }
 
     function test_withdraw() public {
@@ -745,7 +741,6 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
             "eth",
             safe,
             saviour.yvTokenCover("eth", safeHandler),
-            defaultMaxLoss,
             address(alice)
         );
 
@@ -766,7 +761,6 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
             "eth",
             safe,
             saviour.yvTokenCover("eth", safeHandler) / 2,
-            defaultMaxLoss,
             address(alice)
         );
 
@@ -781,7 +775,6 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
             "eth",
             safe,
             saviour.yvTokenCover("eth", safeHandler),
-            defaultMaxLoss,
             address(alice)
         );
 
@@ -802,7 +795,6 @@ contract YearnCurveMaxSafeSaviourTest is DSTest {
             "eth",
             safe,
             saviour.yvTokenCover("eth", safeHandler),
-            defaultMaxLoss,
             address(0xb1)
         );
 

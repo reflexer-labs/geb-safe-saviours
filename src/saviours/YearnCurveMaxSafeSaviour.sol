@@ -340,7 +340,7 @@ contract YearnCurveMaxSafeSaviour is SafeMath, SafeSaviourLike {
     *                If a loss is specified, up to that amount of shares may be burnt to cover losses on withdrawal.
     * @param dst The address that will receive the withdrawn system coins
     */
-    function withdraw(bytes32 collateralType, uint256 safeID, uint256 yvTokenAmount, uint256 maxLoss, address dst)
+    function withdraw(bytes32 collateralType, uint256 safeID, uint256 yvTokenAmount, address dst)
       external controlsSAFE(msg.sender, safeID) nonReentrant {
         require(yvTokenAmount > 0, "YearnCurveMaxSafeSaviour/null-yvToken-amount");
         require(dst != address(0), "YearnCurveMaxSafeSaviour/null-dst");
@@ -352,7 +352,7 @@ contract YearnCurveMaxSafeSaviour is SafeMath, SafeSaviourLike {
         // Redeem system coins from Yearn and transfer them to the caller
         yvTokenCover[collateralType][safeHandler] = sub(yvTokenCover[collateralType][safeHandler], yvTokenAmount);
 
-        uint256 withdrawnCurveLp = yVault.withdraw(yvTokenAmount, dst, maxLoss); // use return value to save on math operations
+        uint256 withdrawnCurveLp = yVault.withdraw(yvTokenAmount, dst, defaultMaxLoss); // use return value to save on math operations
         require(withdrawnCurveLp > 0, "YearnCurveMaxSafeSaviour/no-coins-withdrawn");
 
         emit Withdraw(
