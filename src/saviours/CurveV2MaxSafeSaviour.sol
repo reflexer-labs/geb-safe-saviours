@@ -547,7 +547,7 @@ contract CurveV2MaxSafeSaviour is SafeMath, SafeSaviourLike {
 
         // Get the amounts of tokens sent to the keeper as payment
         (uint256 keeperSysCoins, uint256 keeperCollateralCoins) =
-          getKeeperPayoutTokens(safeHandler, oracleRelayer.redemptionPrice(), systemCoinAmount, collateralAmount);
+          getKeeperPayoutTokens(safeHandler, redemptionPrice, systemCoinAmount, collateralAmount);
 
         // Compute how many coins remain after paying the keeper
         systemCoinAmount = sub(systemCoinAmount, keeperSysCoins);
