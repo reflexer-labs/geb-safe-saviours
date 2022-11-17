@@ -411,7 +411,7 @@ contract CurveV2MaxSafeSaviour is SafeMath, SafeSaviourLike {
         require(either(keeperSysCoins > 0, keeperCollateralCoins > 0), "CurveV2MaxSafeSaviour/cannot-pay-keeper");
 
         // Compute how many coins remain after paying the keeper
-        sysCoinBalance        = sub(sysCoinBalance, keeperSysCoins);
+        sysCoinBalance         = sub(sysCoinBalance, keeperSysCoins);
         collateralTokenBalance = sub(collateralTokenBalance, keeperCollateralCoins);
 
         // There must be tokens that are used to save the SAFE
@@ -424,8 +424,7 @@ contract CurveV2MaxSafeSaviour is SafeMath, SafeSaviourLike {
         sysCoinBalance         = sub(sysCoinBalance, safeDebtRepaid);
 
         // Update system coin reserves
-        underlyingReserves[safeHandler][address(systemCoin)]      = sysCoinBalance;
-        underlyingReserves[safeHandler][address(collateralToken)] = collateralTokenBalance;
+        underlyingReserves[safeHandler][address(systemCoin)] = sysCoinBalance;
 
         // Save the SAFE
         if (safeDebtRepaid > 0) {

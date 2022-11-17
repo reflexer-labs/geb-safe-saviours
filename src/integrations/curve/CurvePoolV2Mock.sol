@@ -1,9 +1,8 @@
 pragma solidity >=0.6.7;
 
-import "../../interfaces/CurveV1PoolLike.sol";
 import "../../interfaces/ERC20Like.sol";
 
-contract CurvePoolMock {
+contract CurvePoolV2Mock {
     // --- Variables ---
     ERC20Like private lpToken;
 
@@ -36,7 +35,7 @@ contract CurvePoolMock {
         return address(0x987654321);
     }
 
-    function lp_token() public view returns (address) {
+    function token() public view returns (address) {
         return address(lpToken);
     }
 
