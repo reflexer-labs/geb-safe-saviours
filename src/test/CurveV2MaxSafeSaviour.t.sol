@@ -1317,28 +1317,6 @@ contract CurveV2MaxSafeSaviourTest is DSTest {
         );
     }
 
-    function test_saveSAFE_twice() public {
-        uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-        address safeHandler = safeManager.safes(safe);
-        default_save(safe, safeHandler);
-
-        hevm.warp(now + saviourRegistry.saveCooldown() + 1);
-        default_second_save(safe, safeHandler);
-
-        (uint256 lockedCollateral, uint256 generatedDebt) = safeEngine.safes(
-            "eth",
-            safeHandler
-        );
-        (, uint256 accumulatedRate, , , , ) = safeEngine.collateralTypes("eth");
-        assertTrue(
-            (lockedCollateral * ray(ethFSM.read()) * 100) /
-                ((generatedDebt *
-                    oracleRelayer.redemptionPrice() *
-                    accumulatedRate) / 10**27) >=
-                minCRatio / 10**17
-        );
-    }
-
     function testFail_saveSAFE_withdraw_cover() public {
         uint256 safe = alice.doOpenSafe(safeManager, "eth", address(alice));
         address safeHandler = safeManager.safes(safe);
