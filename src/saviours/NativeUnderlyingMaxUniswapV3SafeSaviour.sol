@@ -520,7 +520,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     * @param safeHandler The handler of the SAFE which the function takes into account
     * @return The amount of NFT tokens used to save a SAFE
     */
-    function tokenAmountUsedToSave(bytes32, address safeHandler) override public returns (uint256) {
+    function tokenAmountUsedToSave(bytes32, address) override public returns (uint256) {
         return 1;
     }
     /*
