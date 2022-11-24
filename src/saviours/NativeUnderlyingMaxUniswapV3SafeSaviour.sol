@@ -77,12 +77,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         _;
     }
 
-    // --- Structs ---
-    struct NFTCollateral {
-        uint256 firstId;
-        uint256 secondId;
-    }
-
     // --- Variables ---
     // Fee for the target pool
     uint24                                  public poolFee;
@@ -96,7 +90,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     bool                                    public isSystemCoinToken0;
 
     // NFTs used to back safes
-    mapping(address => NFTCollateral)       public lpTokenCover;
+    mapping(address => uint256)             public lpTokenCover;
     // Amount of system coin that Safe owners can get back
     mapping(address => uint256)             public underlyingReserves;
 
@@ -276,10 +270,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     */
     function deposit(uint256 safeID, uint256 tokenId) external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
         address safeHandler = safeManager.safes(safeID);
-        require(
-          either(lpTokenCover[safeHandler].firstId == 0, lpTokenCover[safeHandler].secondId == 0),
-          "NativeUnderlyingMaxUniswapV3SafeSaviour/cannot-add-more-positions"
-        );
+        require(lpTokenCover[safeHandler] == 0, "NativeUnderlyingMaxUniswapV3SafeSaviour/cannot-add-more-positions");
 
         // Fetch position details
         ( ,
@@ -310,11 +301,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         require(safeDebt > 0, "NativeUnderlyingMaxUniswapV3SafeSaviour/safe-does-not-have-debt");
 
         // Update the NFT positions used to cover the SAFE and transfer the NFT to this contract
-        if (lpTokenCover[safeHandler].firstId == 0) {
-          lpTokenCover[safeHandler].firstId = tokenId;
-        } else {
-          lpTokenCover[safeHandler].secondId = tokenId;
-        }
+        lpTokenCover[safeHandler] = tokenId;
 
         positionManager.transferFrom(msg.sender, address(this), tokenId);
         require(
@@ -338,16 +325,10 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
           positionManager.ownerOf(tokenId) == address(this),
           "NativeUnderlyingMaxUniswapV3SafeSaviour/position-not-in-contract"
         );
-        require(
-          either(lpTokenCover[safeHandler].firstId == tokenId, lpTokenCover[safeHandler].secondId == tokenId),
-          "NativeUnderlyingMaxUniswapV3SafeSaviour/position-not-depostied"
-        );
+        require(lpTokenCover[safeHandler] == tokenId, "NativeUnderlyingMaxUniswapV3SafeSaviour/position-not-depostied");
 
         // Update NFT entries
-        if (lpTokenCover[safeHandler].firstId == tokenId) {
-          lpTokenCover[safeHandler].firstId  = lpTokenCover[safeHandler].secondId;
-        }
-        lpTokenCover[safeHandler].secondId = 0;
+        delete lpTokenCover[safeHandler];
 
         // Transfer NFT to the caller
         positionManager.transferFrom(address(this), dst, tokenId);
@@ -377,7 +358,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
         // Check that the SAFE has a non null amount of NFT tokens covering it
         require(
-          either(lpTokenCover[safeHandler].firstId != 0, underlyingReserves[safeHandler] > 0),
+          either(lpTokenCover[safeHandler] > 0, underlyingReserves[safeHandler] > 0),
           "NativeUnderlyingMaxUniswapV3SafeSaviour/no-cover"
         );
 
@@ -391,16 +372,10 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         saviourRegistry.markSave(collateralType, safeHandler);
 
         // Store cover amount in local var
-        uint256 totalCover;
-        if (lpTokenCover[safeHandler].secondId != 0) {
-          totalCover = 2;
-        } else {
-          totalCover = 1;
-        }
+        uint256 totalCover = 1;
 
         // Withdraw all liquidity
-        if (lpTokenCover[safeHandler].secondId != 0) removeLiquidity(lpTokenCover[safeHandler].secondId, safeHandler);
-        if (lpTokenCover[safeHandler].firstId != 0)  removeLiquidity(lpTokenCover[safeHandler].firstId, safeHandler);
+        if (lpTokenCover[safeHandler] > 0)  removeLiquidity(lpTokenCover[safeHandler], safeHandler);
 
         // Get amounts withdrawn
         sysCoinBalance = add(
@@ -515,11 +490,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         // Destroy the ERC721 token
         positionManager.burn(tokenId);
 
-        // Update NFT entries
-        if (lpTokenCover[safeHandler].firstId == tokenId) {
-          lpTokenCover[safeHandler].firstId  = lpTokenCover[safeHandler].secondId;
-        }
-        lpTokenCover[safeHandler].secondId = 0;
+        // Update NFT entry
+        delete lpTokenCover[safeHandler];
     }
 
     // --- Getters ---
@@ -548,12 +520,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     * @param safeHandler The handler of the SAFE which the function takes into account
     * @return The amount of NFT tokens used to save a SAFE
     */
-    function tokenAmountUsedToSave(bytes32, address safeHandler) override public returns (uint256) {
-        if (lpTokenCover[safeHandler].secondId != 0) {
-          return 2;
-        } else {
-          return 1;
-        }
+    function tokenAmountUsedToSave(bytes32, address) override public returns (uint256) {
+        return 1;
     }
     /*
     * @notify Fetch the collateral's price

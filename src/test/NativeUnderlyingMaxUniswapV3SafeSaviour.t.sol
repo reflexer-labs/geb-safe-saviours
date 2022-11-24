@@ -522,22 +522,12 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
     function default_deposit_position(uint256 safe, uint256 tokenId) internal {
         address safeHandler = safeManager.safes(safe);
 
-        (uint256 oldFirst, ) = saviour.lpTokenCover(safeHandler);
-
-        bool addToSecondSlot = oldFirst > 0;
-
         positionManager.transferFrom(address(this), address(alice), tokenId);
         alice.doDeposit(saviour, positionManager, safe, tokenId);
 
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
+        uint256 id = saviour.lpTokenCover(safeHandler);
 
-        if (addToSecondSlot) {
-            assertEq(second, tokenId);
-            assertEq(oldFirst, first);
-        } else {
-            assertEq(first, tokenId);
-            assertEq(second, 0);
-        }
+        assertEq(id, tokenId);
 
         // Connect savior
         alice.doProtectSAFE(safeManager, safe, address(liquidationEngine), address(saviour));
@@ -548,27 +538,14 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
 
     function default_withdraw_position(uint256 safe, uint256 tokenId) internal {
         address safeHandler = safeManager.safes(safe);
-        (uint256 oldFirst, uint256 oldSecond) = saviour.lpTokenCover(safeHandler);
-
-        bool isFirst;
-        if (tokenId == oldFirst) {
-            isFirst = true;
-        } else if (tokenId == oldSecond) {
-            isFirst = false;
-        } else {
-            fail();
-        }
+        uint256 oldId = saviour.lpTokenCover(safeHandler);
+        assertEq(oldId, tokenId);
 
         alice.doWithdraw(saviour, positionManager, safe, tokenId, address(alice));
 
-        (uint256 newFirst, uint256 newSecond) = saviour.lpTokenCover(safeHandler);
+        uint256 newId = saviour.lpTokenCover(safeHandler);
 
-        if (isFirst) {
-            assertEq(newFirst, oldSecond);
-        }
-
-        // Remaining token should always be in slot 1
-        assertEq(newSecond, 0);
+        assertEq(newId, 0);
 
         assertEq(positionManager.ownerOf(tokenId), address(alice));
     }
@@ -674,24 +651,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         (uint256 safe, ) = default_open_safe_and_modify_collateralization();
         uint256 tokenId = default_create_position_and_deposit(safe);
         default_withdraw_position(safe, tokenId);
-    }
-
-    function test_deposit_and_withdraw_two_position() public {
-        (uint256 safe, ) = default_open_safe_and_modify_collateralization();
-        uint256 tokenId1 = default_create_position_and_deposit(safe);
-        uint256 tokenId2 = default_create_position_and_deposit(safe);
-
-        default_withdraw_position(safe, tokenId1);
-        default_withdraw_position(safe, tokenId2);
-    }
-
-    function test_deposit_and_withdraw_reverse_order_two_position() public {
-        (uint256 safe, ) = default_open_safe_and_modify_collateralization();
-        uint256 tokenId1 = default_create_position_and_deposit(safe);
-        uint256 tokenId2 = default_create_position_and_deposit(safe);
-
-        default_withdraw_position(safe, tokenId2);
-        default_withdraw_position(safe, tokenId1);
     }
 
     function testFail_already_withdrawn() public {
@@ -908,7 +867,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         assertEq(collateralAfter, 0);
     }
 
-    function test_saveSAFE_one_position() public {
+    function test_saveSAFE_position() public {
         (uint256 safe, address safeHandler) = default_create_liquidatable_position();
         uint256 tokenId = default_create_position_and_deposit(safe);
 
@@ -923,9 +882,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         assertGt(collateralAfter, 0);
 
         // Check NFT
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, 0);
-        assertEq(second, 0);
+        uint256 id = saviour.lpTokenCover(safeHandler);
+        assertEq(id, 0);
         try positionManager.ownerOf(tokenId) {
             fail();
         } catch Error(string memory reason) {
@@ -934,48 +892,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
 
         // Check reserves
         assertEq(saviour.underlyingReserves(safeHandler), 0);
-    }
-
-    function test_saveSAFE_two_position() public {
-        (uint256 safe, address safeHandler) = default_create_liquidatable_position();
-        uint256 tokenId1 = default_create_position_and_deposit(safe);
-        uint256 tokenId2 = default_create_position_and_deposit(safe);
-
-        (uint256 collateralBefore, uint256 debtBefore) = safeEngine.safes("eth", safeHandler);
-        liquidationEngine.liquidateSAFE("eth", safeHandler);
-        (uint256 collateralAfter, uint256 debtAfter) = safeEngine.safes("eth", safeHandler);
-
-        // Check safe
-        assertLt(debtAfter, debtBefore);
-        assertGt(collateralAfter, collateralBefore);
-        assertGt(collateralAfter, 0);
-
-        // Check NFTs
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, 0);
-        assertEq(second, 0);
-        try positionManager.ownerOf(tokenId1) {
-            fail();
-        } catch Error(string memory reason) {
-            assertEq(reason, "ERC721: owner query for nonexistent token");
-        }
-        try positionManager.ownerOf(tokenId2) {
-            fail();
-        } catch Error(string memory reason) {
-            assertEq(reason, "ERC721: owner query for nonexistent token");
-        }
-
-        // Check reserves
-        uint256 expectedReserveAmount = defaultTokenAmount *
-            2 -
-            initRAIETHPairLiquidity -
-            minKeeperPayoutValue /
-            3 -
-            10; // rounding error from Uniswap
-        assertEq(saviour.underlyingReserves(safeHandler), expectedReserveAmount);
-        uint256 sysCoinBefore = systemCoin.balanceOf(address(alice));
-        alice.doGetReserves(saviour, safe, address(alice));
-        assertEq(systemCoin.balanceOf(address(alice)), sysCoinBefore + expectedReserveAmount);
     }
 
     function test_saveSAFE_single_side_side_systemCoin() public {
@@ -1000,9 +916,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         assertGt(collateralAfter, 0);
 
         // Check NFT
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, 0);
-        assertEq(second, 0);
+        uint256 id = saviour.lpTokenCover(safeHandler);
+        assertEq(id, 0);
         try positionManager.ownerOf(tokenId) {
             fail();
         } catch Error(string memory reason) {
@@ -1035,9 +950,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         assertGt(collateralAfter, 0);
 
         // Check NFT
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, 0);
-        assertEq(second, 0);
+        uint256 id = saviour.lpTokenCover(safeHandler);
+        assertEq(id, 0);
         try positionManager.ownerOf(tokenId) {
             fail();
         } catch Error(string memory reason) {
@@ -1048,7 +962,7 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         assertEq(saviour.underlyingReserves(safeHandler), 0);
     }
 
-    function test_saveSAFE_failure_one_position() public {
+    function test_saveSAFE_failure_position() public {
         (uint256 safe, address safeHandler) = default_create_liquidatable_position();
 
         uint256 tokenId = default_mint_full_range_uni_position(
@@ -1072,9 +986,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         assertEq(collateral, 0);
 
         // NFT good
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, tokenId);
-        assertEq(second, 0);
+        uint256 id = saviour.lpTokenCover(safeHandler);
+        assertEq(id, tokenId);
         (, , , , , , , uint128 liquidityAfter, , , , ) = positionManager.positions(tokenId);
         assertTrue(liquidityBefore == liquidityAfter);
         assertEq(positionManager.ownerOf(tokenId), address(saviour));
@@ -1083,57 +996,6 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         default_withdraw_position(safe, tokenId);
 
         // Check reserves
-        assertEq(saviour.underlyingReserves(safeHandler), 0);
-    }
-
-    function test_saveSAFE_failure_two_position() public {
-        (uint256 safe, address safeHandler) = default_create_liquidatable_position();
-
-        uint256 tokenId1 = default_mint_full_range_uni_position(
-            initRAIETHPairLiquidity / 8,
-            initETHRAIPairLiquidity / 8
-        );
-
-        uint256 tokenId2 = default_mint_full_range_uni_position(
-            initRAIETHPairLiquidity / 8,
-            initETHRAIPairLiquidity / 8
-        );
-
-        default_deposit_position(safe, tokenId1);
-        default_deposit_position(safe, tokenId2);
-
-        (, , , , , , , uint128 liquidityBefore1, , , , ) = positionManager.positions(tokenId1);
-        (, , , , , , , uint128 liquidityBefore2, , , , ) = positionManager.positions(tokenId2);
-
-        (uint256 collateral, uint256 debt) = safeEngine.safes("eth", safeHandler);
-        assertGt(debt, 0);
-        assertGt(collateral, 0);
-
-        liquidationEngine.liquidateSAFE("eth", safeHandler);
-        (collateral, debt) = safeEngine.safes("eth", safeHandler);
-
-        // Safe rekt
-        assertEq(debt, 0);
-        assertEq(collateral, 0);
-
-        // NFTs good
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, tokenId1);
-        assertEq(second, tokenId2);
-
-        (, , , , , , , uint128 liquidityAfter1, , , , ) = positionManager.positions(tokenId1);
-        (, , , , , , , uint128 liquidityAfter2, , , , ) = positionManager.positions(tokenId2);
-        assertTrue(liquidityBefore1 == liquidityAfter1);
-        assertTrue(liquidityBefore2 == liquidityAfter2);
-        assertEq(positionManager.ownerOf(tokenId1), address(saviour));
-        assertEq(positionManager.ownerOf(tokenId2), address(saviour));
-
-        // Can withdraw the nfts
-        default_withdraw_position(safe, tokenId1);
-        default_withdraw_position(safe, tokenId2);
-
-        // Check reserves
-        // On failure all of the LP
         assertEq(saviour.underlyingReserves(safeHandler), 0);
     }
 
@@ -1159,9 +1021,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         assertGt(collateralAfter, 0);
 
         // Check NFT
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, 0);
-        assertEq(second, 0);
+        uint256 id = saviour.lpTokenCover(safeHandler);
+        assertEq(id, 0);
         try positionManager.ownerOf(tokenId) {
             fail();
         } catch Error(string memory reason) {
@@ -1192,9 +1053,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         assertGt(collateralAfter, 0);
 
         // Check NFT
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, 0);
-        assertEq(second, 0);
+        uint256 id = saviour.lpTokenCover(safeHandler);
+        assertEq(id, 0);
         try positionManager.ownerOf(tokenId) {
             fail();
         } catch Error(string memory reason) {
@@ -1250,9 +1110,8 @@ contract NativeUnderlyingMaxUniswapV3SafeSaviourTest is DSTest {
         assertGt(systemCoin.balanceOf(address(this)), balSysCoinBefore);
 
         // Check NFT
-        (uint256 first, uint256 second) = saviour.lpTokenCover(safeHandler);
-        assertEq(first, 0);
-        assertEq(second, 0);
+        uint256 id = saviour.lpTokenCover(safeHandler);
+        assertEq(id, 0);
         try positionManager.ownerOf(tokenId) {
             fail();
         } catch Error(string memory reason) {

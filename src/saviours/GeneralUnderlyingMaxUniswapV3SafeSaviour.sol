@@ -78,18 +78,12 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         _;
     }
 
-    // --- Structs ---
-    struct NFTCollateral {
-        uint256 firstId;
-        uint256 secondId;
-    }
-
     // --- Variables ---
     // Flag that tells whether usage of the contract is restricted to allowed users
     uint256                                         public restrictUsage;
 
     // NFTs used to back safes
-    mapping(address => NFTCollateral)               public lpTokenCover;
+    mapping(address => uint256)                     public lpTokenCover;
     // Amount of tokens that were not used to save SAFEs
     mapping(address => mapping(address => uint256)) public underlyingReserves;
 
@@ -278,10 +272,7 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     */
     function deposit(uint256 safeID, uint256 tokenId) external isAllowed() liquidationEngineApproved(address(this)) nonReentrant {
         address safeHandler = safeManager.safes(safeID);
-        require(
-          either(lpTokenCover[safeHandler].firstId == 0, lpTokenCover[safeHandler].secondId == 0),
-          "GeneralUnderlyingMaxUniswapV3SafeSaviour/cannot-add-more-positions"
-        );
+        require(lpTokenCover[safeHandler] == 0, "GeneralUnderlyingMaxUniswapV3SafeSaviour/cannot-add-more-positions");
 
         // Fetch position details
         ( ,
@@ -307,11 +298,7 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         require(safeDebt > 0, "GeneralUnderlyingMaxUniswapV3SafeSaviour/safe-does-not-have-debt");
 
         // Update the NFT positions used to cover the SAFE and transfer the NFT to this contract
-        if (lpTokenCover[safeHandler].firstId == 0) {
-          lpTokenCover[safeHandler].firstId = tokenId;
-        } else {
-          lpTokenCover[safeHandler].secondId = tokenId;
-        }
+        lpTokenCover[safeHandler] = tokenId;
 
         positionManager.transferFrom(msg.sender, address(this), tokenId);
         require(
@@ -335,16 +322,10 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
           positionManager.ownerOf(tokenId) == address(this),
           "GeneralUnderlyingMaxUniswapV3SafeSaviour/position-not-in-contract"
         );
-        require(
-          either(lpTokenCover[safeHandler].firstId == tokenId, lpTokenCover[safeHandler].secondId == tokenId),
-          "GeneralUnderlyingMaxUniswapV3SafeSaviour/cannot-add-more-positions"
-        );
+        require(lpTokenCover[safeHandler] == tokenId, "GeneralUnderlyingMaxUniswapV3SafeSaviour/cannot-add-more-positions");
 
         // Update NFT entries
-        if (lpTokenCover[safeHandler].firstId == tokenId) {
-          lpTokenCover[safeHandler].firstId  = lpTokenCover[safeHandler].secondId;
-        }
-        lpTokenCover[safeHandler].secondId = 0;
+        delete lpTokenCover[safeHandler];
 
         // Transfer NFT to the caller
         positionManager.transferFrom(address(this), dst, tokenId);
@@ -372,7 +353,7 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
 
         // Check that the SAFE has a non null amount of NFT tokens covering it
         require(
-          either(lpTokenCover[safeHandler].firstId != 0, underlyingReserves[safeHandler][address(systemCoin)] > 0),
+          either(lpTokenCover[safeHandler] > 0, underlyingReserves[safeHandler][address(systemCoin)] > 0),
           "GeneralUnderlyingMaxUniswapV3SafeSaviour/no-cover"
         );
 
@@ -386,27 +367,12 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
         saviourRegistry.markSave(collateralType, safeHandler);
 
         // Store cover amount in local var
-        uint256 totalCover;
-        if (lpTokenCover[safeHandler].secondId != 0) {
-          totalCover = 2;
-        } else {
-          totalCover = 1;
-        }
+        uint256 totalCover = 1;
 
         // Withdraw all liquidity
-        if (lpTokenCover[safeHandler].secondId != 0) {
+        if (lpTokenCover[safeHandler] != 0) {
           (address nonSysCoinToken, uint256 nonSysCoinBalance) =
-            removeLiquidity(lpTokenCover[safeHandler].secondId);
-
-          if (nonSysCoinBalance > 0) {
-            underlyingReserves[safeHandler][nonSysCoinToken] = add(
-              underlyingReserves[safeHandler][nonSysCoinToken], nonSysCoinBalance
-            );
-          }
-        }
-        if (lpTokenCover[safeHandler].firstId != 0) {
-          (address nonSysCoinToken, uint256 nonSysCoinBalance) =
-            removeLiquidity(lpTokenCover[safeHandler].firstId);
+            removeLiquidity(lpTokenCover[safeHandler]);
 
           if (nonSysCoinBalance > 0) {
             underlyingReserves[safeHandler][nonSysCoinToken] = add(
@@ -539,12 +505,8 @@ contract GeneralUnderlyingMaxUniswapV3SafeSaviour is SafeMath, SafeSaviourLike {
     * @param safeHandler The handler of the SAFE which the function takes into account
     * @return The amount of NFT tokens used to save a SAFE
     */
-    function tokenAmountUsedToSave(bytes32, address safeHandler) override public returns (uint256) {
-        if (lpTokenCover[safeHandler].secondId != 0) {
-          return 2;
-        } else {
-          return 1;
-        }
+    function tokenAmountUsedToSave(bytes32, address) override public returns (uint256) {
+        return 1;
     }
     /*
     * @notify Fetch the system coin's market price
