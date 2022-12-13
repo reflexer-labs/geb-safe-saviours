@@ -178,14 +178,6 @@ contract FakeUser {
         manager.transferInternalCoins(safe, dst, amt);
     }
 
-    function doGetReserves(
-        NativeUnderlyingMaxUniswapV2SafeSaviour saviour,
-        uint256 safeID,
-        address dst
-    ) public {
-        saviour.getReserves(safeID, dst);
-    }
-
     function doSetCRatioThreshold(
         NativeUnderlyingMaxUniswapV2SafeSaviour saviour,
         uint safeID,
@@ -427,7 +419,6 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviourTest is DSTest {
         (uint sysCoinsFromLP, ) = saviour.getLPUnderlying(safeHandler);
 
         saviour.saveSAFE(address(this), "eth", safeHandler);
-        assertTrue(saviour.underlyingReserves(safeHandler) > 0);
 
 
         assertTrue(
@@ -458,7 +449,6 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviourTest is DSTest {
 
         (uint sysCoinsFromLP, ) = saviour.getLPUnderlying(safeHandler);
         saviour.saveSAFE(address(this), "eth", safeHandler);
-        assertTrue(saviour.underlyingReserves(safeHandler) > 0);
     }
     function default_liquidate_safe(address safeHandler) internal {
         liquidationEngine.modifyParameters("eth", "liquidationQuantity", rad(100000 ether));
@@ -966,7 +956,6 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviourTest is DSTest {
 
         saviour.saveSAFE(address(this), "eth", safeHandler);
 
-        assertTrue(saviour.underlyingReserves(safeHandler) > 0);
         assertTrue(
           systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
           weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
@@ -1009,7 +998,6 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviourTest is DSTest {
 
         saviour.saveSAFE(address(this), "eth", safeHandler);
 
-        assertEq(saviour.underlyingReserves(safeHandler), 0);
         assertTrue(
           systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
           weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
@@ -1059,7 +1047,6 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviourTest is DSTest {
 
         saviour.saveSAFE(address(this), "eth", safeHandler);
 
-        assertTrue(saviour.underlyingReserves(safeHandler) == 0);
         assertTrue(
           systemCoin.balanceOf(address(this)) - preSaveSysCoinKeeperBalance > 0 ||
           weth.balanceOf(address(this)) - preSaveWETHKeeperBalance > 0
@@ -1179,44 +1166,5 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviourTest is DSTest {
             uint256 cRatio = lockedCollateral * ray(ethFSM.read()) * 100 / (generatedDebt * oracleRelayer.redemptionPrice() * accumulatedRate / 10 ** 27);
             assertTrue(cRatio == (safeCRatio / 10**25) || cRatio == (safeCRatio / 10**25) - 1);
         }
-    }
-
-    function test_saveSAFE_get_reserves() public {
-        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-        address safeHandler = safeManager.safes(safe);
-        default_save(safe, safeHandler, 155);
-
-        uint256 oldSysCoinBalance = systemCoin.balanceOf(address(alice));
-
-        uint sysCoinReserve = saviour.underlyingReserves(safeHandler);
-
-        alice.doGetReserves(saviour, safe, address(alice));
-        assertTrue(systemCoin.balanceOf(address(alice)) - sysCoinReserve == oldSysCoinBalance);
-
-        assertEq(systemCoin.balanceOf(address(saviour)), 0);
-    }
-    function test_saveSAFE_get_reserves_twice() public {
-        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-        address safeHandler = safeManager.safes(safe);
-        default_save(safe, safeHandler, 155);
-        alice.doGetReserves(saviour, safe, address(alice));
-
-        default_second_save(safe, safeHandler, 570);
-
-        uint256 oldSysCoinBalance = systemCoin.balanceOf(address(0x1));
-        uint256 oldCollateralBalance = weth.balanceOf(address(0x1));
-
-        uint sysCoinReserve = saviour.underlyingReserves(safeHandler);
-
-        alice.doGetReserves(saviour, safe, address(0x1));
-        assertEq(systemCoin.balanceOf(address(0x1)) - sysCoinReserve, oldSysCoinBalance);
-        assertEq(systemCoin.balanceOf(address(saviour)), 0);
-    }
-    function testFail_getReserves_invalid_caller() public {
-        uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
-        address safeHandler = safeManager.safes(safe);
-        default_save(safe, safeHandler, 155);
-
-        saviour.getReserves(safe, address(alice));
     }
 }

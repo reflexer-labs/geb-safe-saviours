@@ -23,4 +23,9 @@ abstract contract SAFEEngineLike {
         int256 deltaCollateral,    // [wad]
         int256 deltaDebt           // [wad]
     ) virtual external;
+    function transferInternalCoins(
+        address src,
+        address dst,
+        uint256 rad                // [rad]
+    ) virtual external;
 }
