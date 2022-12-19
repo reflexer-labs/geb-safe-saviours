@@ -83,8 +83,6 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviour is Math, SafeMath, SafeSaviourL
 
     // Amount of LP tokens currently protecting each position
     mapping(address => uint256)    public lpTokenCover;
-    // Amount of system coin tokens that Safe owners can get back
-    mapping(address => uint256)    public underlyingReserves;
     // cRatio threshold for each Safe, below which anyone can call saveSAFE (safeHandler, threshold)
     mapping(address => uint)       public cRatioThresholds;
 
@@ -120,12 +118,6 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviour is Math, SafeMath, SafeSaviourL
       address indexed safeHandler,
       address dst,
       uint256 lpTokenAmount
-    );
-    event GetReserves(
-      address indexed caller,
-      address indexed safeHandler,
-      uint256 systemCoinAmount,
-      address dst
     );
 
     constructor(
@@ -245,23 +237,6 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviour is Math, SafeMath, SafeSaviourL
         address safeHandler = safeManager.safes(safeID);
         cRatioThresholds[safeHandler] = cRatioThreshold;
     }
-    // --- Transferring Reserves ---
-    /*
-    * @notify Get back system coins that were withdrawn from Uniswap and not used to save a specific SAFE
-    * @param safeID The ID of the Safe that was previously saved and has leftover system coins that can be withdrawn
-    * @param dst The address that will receive system coins
-    */
-    function getReserves(uint256 safeID, address dst) external controlsSAFE(msg.sender, safeID) nonReentrant {
-        address safeHandler = safeManager.safes(safeID);
-        uint256 systemCoins = underlyingReserves[safeHandler];
-
-        require(systemCoins > 0, "NativeUnderlyingMaxUniswapV2SafeSaviour/no-reserves");
-        underlyingReserves[safeHandler] = 0;
-
-        systemCoin.transfer(dst, systemCoins);
-
-        emit GetReserves(msg.sender, safeHandler, systemCoins, dst);
-    }
 
     // --- Adding/Withdrawing Cover ---
     /*
@@ -325,10 +300,7 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviour is Math, SafeMath, SafeSaviourL
         require(collateralType == collateralJoin.collateralType(), "NativeUnderlyingMaxUniswapV2SafeSaviour/invalid-collateral-type");
 
         // Check that the SAFE has a non null amount of LP tokens covering it or some reserves
-        require(
-          either(lpTokenCover[safeHandler] > 0, underlyingReserves[safeHandler] > 0),
-          "NativeUnderlyingMaxUniswapV2SafeSaviour/null-cover"
-        );
+        require(lpTokenCover[safeHandler] > 0, "NativeUnderlyingMaxUniswapV2SafeSaviour/null-cover");
 
         // Tax the collateral
         taxCollector.taxSingle(collateralType);
@@ -356,10 +328,7 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviour is Math, SafeMath, SafeSaviourL
         }
 
         // Compute how many coins were withdrawn as well as the amount of ETH that's in this contract
-        sysCoinBalance                = add(
-          sub(systemCoin.balanceOf(address(this)), sysCoinBalance),
-          underlyingReserves[safeHandler]
-        );
+        sysCoinBalance                = sub(systemCoin.balanceOf(address(this)), sysCoinBalance);
         uint256 collateralCoinBalance = collateralToken.balanceOf(address(this));
 
         // Get the amounts of tokens sent to the keeper as payment
@@ -382,9 +351,6 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviour is Math, SafeMath, SafeSaviourL
         // Compute remaining balances of tokens that will go into reserves
         sysCoinBalance         = sub(sysCoinBalance, safeDebtRepaid);
 
-        // Update reserves
-        underlyingReserves[safeHandler] = sysCoinBalance;
-
         // Save the SAFE
         if (safeDebtRepaid > 0) {
           // Approve the coin join contract to take system coins and repay debt
@@ -402,6 +368,12 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviour is Math, SafeMath, SafeSaviourL
             int256(0),
             -int256(nonAdjustedSystemCoinsToRepay)
           );
+        }
+
+        // Transfer internal
+        if (sysCoinBalance > 0) {
+          systemCoin.approve(address(coinJoin), sysCoinBalance);
+          coinJoin.join(safeHandler, sysCoinBalance);
         }
 
         if (collateralCoinBalance > 0) {
@@ -464,7 +436,6 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviour is Math, SafeMath, SafeSaviourL
         (uint256 systemCoinAmount, ) =
           getLPUnderlying(safeHandler);
 
-        systemCoinAmount         = add(systemCoinAmount, underlyingReserves[safeHandler]);
         uint256 collateralAmount = collateralToken.balanceOf(address(this));
 
         // Get the amounts of tokens sent to the keeper as payment
@@ -578,20 +549,7 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviour is Math, SafeMath, SafeSaviourL
         // Get the SAFE debt
         (, uint256 safeDebt) = safeEngine.safes(collateralType, safeHandler);
 
-        if (safeDebt <= maxSystemCoins) {
-          return safeDebt;
-        }
-
-        (, uint256 accumulatedRate, , , uint debtFloor, ) = safeEngine.collateralTypes(collateralType);
-        uint256 adjustedDebt = mul(accumulatedRate, safeDebt);
-
-        if (debtFloor >= adjustedDebt) {
-          return 0;
-        }
-
-        uint256 debtToRepay = sub(adjustedDebt, debtFloor) / RAY;
-
-        return min(maxSystemCoins, debtToRepay);
+        return min(safeDebt, maxSystemCoins);
     }
     /*
     * @notice Return the amount of system coins and/or collateral tokens used to pay a keeper
