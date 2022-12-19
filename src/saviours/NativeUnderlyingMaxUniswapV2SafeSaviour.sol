@@ -372,7 +372,8 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviour is Math, SafeMath, SafeSaviourL
 
         // Transfer internal
         if (sysCoinBalance > 0) {
-          safeEngine.transferInternalCoins(address(this), safeHandler, sysCoinBalance);
+          systemCoin.approve(address(coinJoin), sysCoinBalance);
+          coinJoin.join(safeHandler, sysCoinBalance);
         }
 
         if (collateralCoinBalance > 0) {

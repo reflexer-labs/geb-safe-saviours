@@ -1055,12 +1055,16 @@ contract NativeUnderlyingMaxUniswapV2SafeSaviourTest is DSTest {
         assertEq(raiWETHPair.balanceOf(address(liquidityManager)), 0);
         assertEq(saviour.lpTokenCover(safeHandler), 0);
     }
-    function test_saveSAFE_twice() public {
+    function test_saveSAFE_remainder() public {
         uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
         address safeHandler = safeManager.safes(safe);
         default_save(safe, safeHandler, 150);
 
-        default_second_save(safe, safeHandler, 570);
+        (uint lockedCollateral, uint generatedDebt) = safeEngine.safes("eth", safeHandler);
+        assertEq(generatedDebt, 0);
+
+        assertTrue(safeEngine.coinBalance(address(safeHandler)) > 0);
+        assertEq(systemCoin.balanceOf(address(safeEngine)), 0);
     }
     function testFail_saveSAFE_withdraw_cover() public {
         uint safe = alice.doOpenSafe(safeManager, "eth", address(alice));
